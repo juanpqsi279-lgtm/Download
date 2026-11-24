@@ -2,22 +2,27 @@
 
 Aplicación de escritorio y web local desarrollada por **Juan Corporation** con estética **iOS 27 Liquid Glass** (modo oscuro y modo claro, animaciones fluidas e inspector completo de metadatos) para descargar contenido multimedia en múltiples calidades de **video** (hasta 4K/8K en MP4, MKV o WebM) o **solo audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
 
-## Ejecución como aplicación de escritorio (Windows)
+## Descargar para Windows (Recomendado)
 
-- **Lanzador nativo directo (sin navegador ni consola negra):** haz doble clic en `!Download-Desktop.bat`, o ejecuta:
-  ```powershell
-  .\.venv\Scripts\pythonw.exe desktop_main.py
-  ```
-- **Ejecutable empaquetado (todo incluido):** compilado en `dist\!Download\!Download.exe` (incluye `FFmpeg`, `FFprobe`, `Deno` y `yt-dlp`).
-  > **Nota sobre Windows 11 Smart App Control:** en equipos con Control de aplicaciones / Smart App Control activo, Windows bloquea ejecutables locales sin firma digital (*Authenticode*). En ese caso, usa `!Download-Desktop.bat` para abrir la misma ventana nativa en este equipo, o firma el `.exe` antes de distribuirlo.
+Si solo quieres usar `!Download` sin instalar herramientas ni compilar nada, descarga la última versión todo incluido desde **GitHub Releases**:
 
-## Ejecución en modo web local
+👉 **[Descargar última versión (Releases)](https://github.com/juanpqsi279-lgtm/Download/releases/latest)**
 
-Haz doble clic en `start.bat` o ejecuta en PowerShell:
+- **`Download-Setup-v1.0.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
+- **`Download-Portable-v1.0.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
 
-```powershell
-.\start.ps1
-```
+---
+
+## Ejecutar desde el código fuente (todo automático)
+
+Si descargaste o clonaste el repositorio directamente, simplemente haz doble clic en:
+
+- **[`!Download-Desktop.bat`](!Download-Desktop.bat)** — abre `!Download` en su propia ventana nativa de escritorio (sin abrir navegador).
+- **[`start.bat`](start.bat)** o **[`start.ps1`](start.ps1)** — inicia el servidor local en `http://127.0.0.1:8000`.
+
+> En la primera ejecución, [scripts/bootstrap.ps1](scripts/bootstrap.ps1) detecta automáticamente si falta `.venv` o `bin/` e instala `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno` de forma automática.
+
+> **Nota sobre Windows 11 Smart App Control:** en equipos con Control de aplicaciones / Smart App Control activo, Windows puede bloquear ejecutables `.exe` sin firma digital (*Authenticode*). En ese caso, usa `!Download-Desktop.bat` para abrir exactamente la misma ventana nativa.
 
 ## Sistema de actualizaciones en 2 niveles
 
@@ -33,14 +38,10 @@ uv pip install --python .venv\Scripts\python.exe -e ".[dev]"
 .\.venv\Scripts\pyinstaller.exe --noconfirm --clean build.spec
 ```
 
-## Publicar repositorio y primera versión (`v1.0.0`) en GitHub
+## Publicar una nueva versión en GitHub Releases
 
-Crea el repositorio vacío `Download` en tu cuenta de GitHub (`https://github.com/juanpqsi279-lgtm/Download`) o inicia sesión con GitHub CLI (`gh auth login`), y luego ejecuta:
+El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila el ejecutable, verifica `--self-check`, genera el instalador y el `.zip` portable y publica los archivos automáticamente al subir una etiqueta `v*`:
 
 ```bash
-git remote add origin https://github.com/juanpqsi279-lgtm/Download.git
-git push -u origin main
-git tag v1.0.0 && git push origin v1.0.0
+git tag v1.0.1 && git push origin v1.0.1
 ```
-
-Al subir la etiqueta `v1.0.0`, el flujo [release.yml](.github/workflows/release.yml) compilará automáticamente el ejecutable, verificará `--self-check`, generará el instalador y el `.zip` portable y los publicará en **GitHub Releases**.
