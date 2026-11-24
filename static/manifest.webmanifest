@@ -1,0 +1,17 @@
+{
+  "name": "!Download",
+  "short_name": "!Download",
+  "description": "Descargador multimedia Liquid Glass por Juan Corporation",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07090e",
+  "theme_color": "#07090e",
+  "icons": [
+    {
+      "src": "/static/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -2,25 +2,31 @@
 
 Aplicación de escritorio y web local desarrollada por **Juan Corporation** con estética **iOS 27 Liquid Glass** (modo oscuro y modo claro, animaciones fluidas e inspector completo de metadatos) para descargar contenido multimedia en múltiples calidades de **video** (hasta 4K/8K en MP4, MKV o WebM) o **solo audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
 
-## Descargar desde Releases (Windows, Linux y Android)
+## Descargar desde Releases (Windows, Linux, Android e iPhone)
 
 Si solo quieres usar `!Download` sin instalar herramientas ni compilar nada, descarga la última versión todo incluido desde **GitHub Releases**:
 
 👉 **[Descargar última versión (Releases)](https://github.com/juanpqsi279-lgtm/Download/releases/latest)**
 
 ### Windows
-- **`Download-Setup-v1.2.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
-- **`Download-Portable-v1.2.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
+- **`Download-Setup-v1.3.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
+- **`Download-Portable-v1.3.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
+  > **Importante (Error 4551 / Windows Smart App Control):** si tu Windows 11 tiene *Control de aplicaciones inteligente (Smart App Control)* activado, bloqueará cualquier `.exe` descargado que no cuente con certificado digital (*Authenticode*). En ese equipo usa **[`!Download-Desktop.bat`](!Download-Desktop.bat)** (corre sobre Python firmado), o agrega secretos `WINDOWS_CERT_PFX_BASE64` y `WINDOWS_CERT_PASSWORD` en GitHub para firmar el `.exe` automáticamente en cada release.
 
 ### Linux (`x86_64` / `amd64`)
-- **`Download-v1.2.0-linux-x86_64.AppImage`**: ejecutable portable universal (`chmod +x` y ejecutar; soporta auto-actualizaciones).
-- **`Download-v1.2.0-linux-amd64.deb`**: paquete para Debian, Ubuntu, Linux Mint y Pop!_OS (`sudo apt install ./Download-v1.2.0-linux-amd64.deb`).
-- **`Download-Portable-v1.2.0-linux-x86_64.tar.gz`**: archivo portable (descomprimir y ejecutar `./exclaim-download/exclaim-download`; incluye `./exclaim-download/install-desktop.sh` para crear acceso directo y soporta auto-actualizaciones).
+- **`Download-v1.3.0-linux-x86_64.AppImage`**: ejecutable portable universal (`chmod +x` y ejecutar; soporta auto-actualizaciones).
+- **`Download-v1.3.0-linux-amd64.deb`**: paquete para Debian, Ubuntu, Linux Mint y Pop!_OS (`sudo apt install ./Download-v1.3.0-linux-amd64.deb`).
+- **`Download-Portable-v1.3.0-linux-x86_64.tar.gz`**: archivo portable (descomprimir y ejecutar `./exclaim-download/exclaim-download`; incluye `./exclaim-download/install-desktop.sh` para crear acceso directo y soporta auto-actualizaciones).
 
 ### Android (`.apk` todo incluido)
-- **`Download-v1.2.0-android-arm64.apk`**: recomendado para la mayoría de teléfonos Android modernos (`arm64-v8a`, más ligero).
-- **`Download-v1.2.0-android-universal.apk`**: compatible con cualquier arquitectura Android (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+- **`Download-v1.3.0-android-arm64.apk`**: recomendado para la mayoría de teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.3.0-android-universal.apk`**: compatible con cualquier arquitectura Android (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
 - Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Download/!Download/`, notificaciones de progreso, opción **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK desde Ajustes.
+
+### iPhone / iPad (`Download-v1.3.0-ios.ipa`)
+- **`Download-v1.3.0-ios.ipa`**: app iOS nativa con UI Liquid Glass (`WKWebView`), Python 3.14 + `yt-dlp` embebido, **Apple JavaScriptCore** para retos de YouTube y **AVFoundation** para unir video + audio en MP4 y guardar directo en **Archivos → En mi iPhone → `!Download`** (con botón para guardar en Fototeca/AirDrop).
+- **Cómo instalar el `.ipa` en iPhone sin App Store:** usa **[AltStore](https://altstore.io/)**, **[SideStore](https://sidestore.io/)**, **Sideloadly** o **TrollStore**.
+- **Alternativa sin instalar `.ipa` (PWA en Safari):** corre `!Download` en tu PC/Mac en la red local o por Cloudflare Tunnel, ábrelo en **Safari** y pulsa **Compartir → Añadir a pantalla de inicio**.
 
 ---
 
@@ -82,10 +88,20 @@ gradle -p android assembleRelease
 
 > El flujo de GitHub Actions compila automáticamente `Download-v*-android-arm64.apk` y `Download-v*-android-universal.apk` en cada release.
 
-## Publicar una nueva versión en GitHub Releases
+### iPhone / iOS
 
-El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux** y **Android**, verifica `--self-check` y publica todos los archivos automáticamente al subir una etiqueta `v*`:
+Requiere macOS con Xcode 16+ y `xcodegen`:
 
 ```bash
-git tag v1.0.1 && git push origin v1.0.1
+mkdir -p ios/App/WebAssets/static
+cp static/index.html static/styles.css static/app.js static/icon.png static/manifest.webmanifest ios/App/WebAssets/static/
+cd ios && xcodegen generate
+```
+
+## Publicar una nueva versión en GitHub Releases
+
+El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux**, **Android** e **iOS**, verifica `--self-check` y publica todos los archivos automáticamente al subir una etiqueta `v*`:
+
+```bash
+git tag v1.3.0 && git push origin v1.3.0
 ```

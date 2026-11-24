@@ -125,8 +125,17 @@
     return Boolean(window.AndroidBridge);
   }
 
+  function hasIOSBridge() {
+    return Boolean(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosBridge);
+  }
+
   function isDesktopMode() {
-    return Boolean((state.appInfo && state.appInfo.desktop_mode) || hasDesktopBridge() || hasAndroidBridge());
+    return Boolean(
+      (state.appInfo && state.appInfo.desktop_mode) ||
+      hasDesktopBridge() ||
+      hasAndroidBridge() ||
+      hasIOSBridge()
+    );
   }
 
   function getCurrentTheme() {
@@ -149,6 +158,13 @@
         window.AndroidBridge.setSystemBarTheme(normalized);
       } catch {
         // Ignore Android bridge error
+      }
+    }
+    if (hasIOSBridge()) {
+      try {
+        window.webkit.messageHandlers.iosBridge.postMessage({ action: "setTheme", theme: normalized });
+      } catch {
+        // Ignore iOS bridge error
       }
     }
     if (persistRemote) {
@@ -261,11 +277,15 @@
   function updateFolderDisplays(dirPath) {
     const clean = dirPath || "";
     const desktop = isDesktopMode();
-    const isAndroid = Boolean((state.appInfo && state.appInfo.platform === "android") || hasAndroidBridge());
+    const isMobileNative = Boolean(
+      (state.appInfo && (state.appInfo.platform === "android" || state.appInfo.platform === "ios")) ||
+      hasAndroidBridge() ||
+      hasIOSBridge()
+    );
     els.folderPill.hidden = !desktop || !clean;
     els.modalFolderSection.hidden = !desktop || !clean;
-    els.quickFolderBtn.hidden = isAndroid;
-    els.modalChooseFolderBtn.hidden = isAndroid;
+    els.quickFolderBtn.hidden = isMobileNative;
+    els.modalChooseFolderBtn.hidden = isMobileNative;
     if (clean) {
       const parts = clean.split(/[\\/]/).filter(Boolean);
       const shortName = parts.length > 0 ? parts[parts.length - 1] : clean;
@@ -441,8 +461,14 @@
       state.mode = "audio";
       state.selectedHeight = null;
     }
-    state.selectedContainer = "mp4";
-    state.selectedAudioFormat = "mp3";
+    const containers = media.video_containers || [];
+    state.selectedContainer = containers.some((c) => c.value === "mp4")
+      ? "mp4"
+      : ((containers[0] && containers[0].value) || "mp4");
+    const audioFormats = media.audio_formats || [];
+    state.selectedAudioFormat = audioFormats.some((f) => f.format === "mp3")
+      ? "mp3"
+      : ((audioFormats[0] && audioFormats[0].format) || "mp3");
     state.selectedAudioBitrate = 192;
   }
 
@@ -1266,6 +1292,8 @@
       window.pywebview.api.open_external_url(target).catch(() => {});
     } else if (hasAndroidBridge() && typeof window.AndroidBridge.openExternalUrl === "function") {
       window.AndroidBridge.openExternalUrl(target);
+    } else if (hasIOSBridge()) {
+      window.webkit.messageHandlers.iosBridge.postMessage({ action: "openExternalUrl", url: target });
     } else {
       window.open(target, "_blank", "noopener");
     }
