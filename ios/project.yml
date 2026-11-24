@@ -43,5 +43,8 @@ targets:
       - sdk: JavaScriptCore.framework
     postBuildScripts:
       - name: Install Python for yt-dlp
-        script: '"${BUILD_DIR%/Build/*}/SourcePackages/checkouts/ytdlp-apple/scripts/install-python.sh"'
+        script: |
+          export EXPANDED_CODE_SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-}"
+          export EXPANDED_CODE_SIGN_IDENTITY_NAME="${EXPANDED_CODE_SIGN_IDENTITY_NAME:-}"
+          "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/ytdlp-apple/scripts/install-python.sh"
         basedOnDependencyAnalysis: false
