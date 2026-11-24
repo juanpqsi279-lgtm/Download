@@ -261,6 +261,27 @@
     }
   }
 
+  function formatToolVersion(key, raw) {
+    if (!raw) return "Disponible";
+    const text = String(raw).trim();
+    if (key === "ffmpeg" || key === "ffprobe") {
+      const nMatch = text.match(/\b(N-\d+)(?:-[a-z0-9]+)?-(\d{4})(\d{2})(\d{2})\b/i);
+      if (nMatch) {
+        return `${nMatch[1]} (${nMatch[2]}-${nMatch[3]}-${nMatch[4]})`;
+      }
+      const verMatch = text.match(/version\s+([^\s]+)/i);
+      if (verMatch) return verMatch[1];
+    }
+    if (key === "deno") {
+      const denoMatch = text.match(/deno\s+([\d.]+)/i);
+      if (denoMatch) return `v${denoMatch[1]}`;
+    }
+    if (key === "yt_dlp" && /^\d/.test(text)) {
+      return `v${text}`;
+    }
+    return text;
+  }
+
   function renderTools(tools) {
     els.runtimeMiniStatus.querySelectorAll(".engine-dot").forEach((dot) => {
       const key = dot.dataset.tool;
@@ -268,7 +289,7 @@
       dot.classList.remove("is-ready", "is-missing");
       if (item && item.available) {
         dot.classList.add("is-ready");
-        dot.title = item.version ? `${key}: ${item.version}` : `${key}: listo`;
+        dot.title = item.version ? `${key}: ${formatToolVersion(key, item.version)}` : `${key}: listo`;
       } else {
         dot.classList.add("is-missing");
         dot.title = `${key}: no detectado`;
@@ -299,7 +320,7 @@
       ver.className = "tool-box-ver";
       if (item.available) {
         const suffix = item.using_override ? " (Actualizado)" : "";
-        ver.textContent = `${item.version || "Disponible"}${suffix}`;
+        ver.textContent = `${formatToolVersion(key, item.version)}${suffix}`;
         ver.title = item.version || "";
       } else {
         ver.textContent = "No detectado";
