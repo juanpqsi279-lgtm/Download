@@ -1,7 +1,7 @@
 #define MyAppName "!Download"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Juan Corporation"
-#define MyAppURL "https://github.com/juanpqsi/Download"
+#define MyAppURL "https://github.com/juanpqsi279-lgtm/Download"
 #define MyAppExeName "!Download.exe"
 
 [Setup]

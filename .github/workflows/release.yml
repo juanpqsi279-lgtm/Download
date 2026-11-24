@@ -51,14 +51,16 @@ jobs:
         shell: pwsh
         run: |
           .\.venv\Scripts\pyinstaller.exe --noconfirm --clean build.spec
-          .\dist\!Download\!Download.exe --self-check
+          $p = Start-Process -FilePath ".\dist\!Download\!Download.exe" -ArgumentList "--self-check" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)" }
 
       - name: Build installer and portable archive
         shell: pwsh
         run: |
           $tag = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
-          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-          if (Test-Path $iscc) {
+          $isccCmd = Get-Command iscc -ErrorAction SilentlyContinue
+          $iscc = if ($isccCmd) { $isccCmd.Source } else { "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          if ($iscc -and (Test-Path $iscc)) {
             & $iscc installer.iss
           }
           Compress-Archive -Path "dist\!Download" -DestinationPath "dist\!Download-Portable-$tag.zip" -Force
@@ -69,5 +71,5 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            dist/!Download-Setup-*.exe
-            dist/!Download-Portable-*.zip
+            dist/*.exe
+            dist/*.zip

@@ -22,7 +22,7 @@ Haz doble clic en `start.bat` o ejecuta en PowerShell:
 ## Sistema de actualizaciones en 2 niveles
 
 1. **Actualización del motor (`yt-dlp`):** dentro de **Ajustes** en `!Download`, pulsa **Actualizar motor** para descargar el paquete zipapp oficial más reciente de `yt-dlp` sin recompilar la aplicación.
-2. **Actualizaciones de `!Download`:** al abrir la app, consulta `https://api.github.com/repos/juanpqsi/Download/releases/latest` y permite descargar e instalar nuevas versiones publicadas en GitHub Releases.
+2. **Actualizaciones de `!Download`:** al abrir la app, consulta `https://api.github.com/repos/juanpqsi279-lgtm/Download/releases/latest` y permite descargar e instalar nuevas versiones publicadas en GitHub Releases.
 
 ## Cómo compilar el ejecutable desde cero
 
@@ -35,10 +35,10 @@ uv pip install --python .venv\Scripts\python.exe -e ".[dev]"
 
 ## Publicar repositorio y primera versión (`v1.0.0`) en GitHub
 
-Crea el repositorio vacío `Download` en tu cuenta de GitHub (`https://github.com/juanpqsi/Download`) o inicia sesión con GitHub CLI (`gh auth login`), y luego ejecuta:
+Crea el repositorio vacío `Download` en tu cuenta de GitHub (`https://github.com/juanpqsi279-lgtm/Download`) o inicia sesión con GitHub CLI (`gh auth login`), y luego ejecuta:
 
 ```bash
-git remote add origin https://github.com/juanpqsi/Download.git
+git remote add origin https://github.com/juanpqsi279-lgtm/Download.git
 git push -u origin main
 git tag v1.0.0 && git push origin v1.0.0
 ```

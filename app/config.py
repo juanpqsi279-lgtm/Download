@@ -14,7 +14,7 @@ from typing import Any
 APP_NAME = "!Download"
 APP_DEVELOPER = "Juan Corporation"
 APP_VERSION = "1.0.0"
-GITHUB_REPO = os.getenv("DOWNLOAD_GITHUB_REPO", "juanpqsi/Download")
+GITHUB_REPO = os.getenv("DOWNLOAD_GITHUB_REPO", "juanpqsi279-lgtm/Download")
 
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
