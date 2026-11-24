@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import subprocess
+import sys
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import AsyncGenerator
@@ -22,6 +21,7 @@ from app.config import (
     GITHUB_REPO,
     IS_FROZEN,
     STATIC_DIR,
+    can_self_update,
     ensure_runtime_paths,
     get_download_dir,
     get_runtime_status,
@@ -31,6 +31,7 @@ from app.config import (
 )
 from app.jobs import TERMINAL_STATUSES, job_manager, translate_ytdlp_error
 from app.media_service import extract_media_info, format_content_disposition, validate_url
+from app.platform_utils import open_path_in_os, reveal_in_file_manager
 from app.schemas import (
     AnalyzeRequest,
     AppUpdateRequest,
@@ -90,8 +91,10 @@ async def app_info() -> dict[str, object]:
         "name": APP_NAME,
         "developer": APP_DEVELOPER,
         "version": APP_VERSION,
+        "platform": sys.platform,
         "desktop_mode": is_desktop_mode(),
         "frozen": IS_FROZEN,
+        "can_self_update": can_self_update(),
         "github_repo": GITHUB_REPO,
         "download_dir": str(get_download_dir()),
         "settings": load_settings(),
@@ -160,10 +163,10 @@ async def api_open_folder(req: OpenPathRequest) -> dict[str, bool]:
     if not target.exists():
         raise HTTPException(status_code=404, detail="El archivo o carpeta ya no existe.")
 
-    if target.is_file():
-        subprocess.Popen(["explorer", f"/select,{target}"])
-    else:
-        os.startfile(str(target))  # type: ignore[attr-defined]
+    try:
+        reveal_in_file_manager(target)
+    except (RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo abrir la carpeta: {exc}") from exc
     return {"opened": True}
 
 
@@ -178,7 +181,10 @@ async def api_open_file(req: OpenPathRequest) -> dict[str, bool]:
     if not target.is_file():
         raise HTTPException(status_code=404, detail="El archivo ya no existe.")
 
-    os.startfile(str(target))  # type: ignore[attr-defined]
+    try:
+        open_path_in_os(target)
+    except (RuntimeError, OSError) as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudo abrir el archivo: {exc}") from exc
     return {"opened": True}
 
 

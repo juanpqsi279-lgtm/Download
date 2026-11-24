@@ -48,6 +48,8 @@ def test_health_and_app_info_report_tools_and_branding() -> None:
     assert payload["name"] == APP_NAME
     assert payload["developer"] == APP_DEVELOPER
     assert payload["version"] == APP_VERSION
+    assert payload["platform"] == sys.platform
+    assert isinstance(payload["can_self_update"], bool)
 
 
 def test_info_rejects_invalid_and_local_urls() -> None:
@@ -243,3 +245,176 @@ def test_parse_semver_and_zip_override_finder(tmp_path: Path) -> None:
     finally:
         sys.meta_path.remove(finder)
         sys.modules.pop("dummy_override_pkg", None)
+
+
+def test_xdg_user_download_dir_parses_user_dirs(tmp_path: Path, monkeypatch) -> None:
+    from app.config import _xdg_user_download_dir
+
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    config_dir = tmp_path / ".config"
+    config_dir.mkdir()
+    target_dl = tmp_path / "Descargas"
+    target_dl.mkdir()
+    (config_dir / "user-dirs.dirs").write_text(
+        '# comment\nXDG_DOWNLOAD_DIR="$HOME/Descargas"\n',
+        encoding="utf-8",
+    )
+
+    assert _xdg_user_download_dir(tmp_path) == target_dl
+
+
+def test_resolve_binary_posix_ignores_exe_and_non_executable(tmp_path: Path, monkeypatch) -> None:
+    import app.config as cfg
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "ffmpeg.exe").write_bytes(b"win")
+    non_exec = bin_dir / "ffmpeg"
+    non_exec.write_bytes(b"linux-no-exec")
+
+    monkeypatch.setattr(cfg.sys, "platform", "linux")
+    monkeypatch.setattr(cfg, "_candidate_bin_dirs", lambda: [bin_dir])
+    monkeypatch.setattr(cfg.shutil, "which", lambda name: None)
+    monkeypatch.setattr(cfg.os, "access", lambda path, mode: False)
+
+    assert cfg.resolve_binary("ffmpeg") is None
+
+    monkeypatch.setattr(
+        cfg.os,
+        "access",
+        lambda path, mode: Path(path) == non_exec,
+    )
+    assert cfg.resolve_binary("ffmpeg") == str(non_exec)
+
+
+def test_linux_open_path_and_reveal_file_manager(tmp_path: Path, monkeypatch) -> None:
+    import app.platform_utils as pu
+
+    sample_file = tmp_path / "video prueba.mp4"
+    sample_file.write_bytes(b"data")
+
+    monkeypatch.setattr(pu.sys, "platform", "linux")
+
+    popen_calls: list[list[str]] = []
+
+    class DummyProc:
+        pass
+
+    def fake_popen(cmd, **kwargs):
+        popen_calls.append(list(cmd))
+        return DummyProc()
+
+    monkeypatch.setattr(pu.subprocess, "Popen", fake_popen)
+
+    # 1) open_path_in_os uses xdg-open when available
+    monkeypatch.setattr(pu.shutil, "which", lambda name: "/usr/bin/xdg-open" if name == "xdg-open" else None)
+    pu.open_path_in_os(sample_file)
+    assert popen_calls[-1] == ["/usr/bin/xdg-open", str(sample_file)]
+
+    # 2) reveal_in_file_manager uses gdbus ShowItems when available and returning 0
+    run_calls: list[list[str]] = []
+
+    class DummyCompleted:
+        def __init__(self, returncode: int) -> None:
+            self.returncode = returncode
+
+    def fake_run(cmd, **kwargs):
+        run_calls.append(list(cmd))
+        return DummyCompleted(0)
+
+    monkeypatch.setattr(pu.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        pu.shutil,
+        "which",
+        lambda name: f"/usr/bin/{name}" if name in {"gdbus", "xdg-open"} else None,
+    )
+    pu.reveal_in_file_manager(sample_file)
+    assert run_calls
+    assert "org.freedesktop.FileManager1.ShowItems" in run_calls[-1]
+
+    # 3) reveal_in_file_manager falls back to opening parent folder when gdbus fails
+    monkeypatch.setattr(pu.subprocess, "run", lambda cmd, **kwargs: DummyCompleted(1))
+    pu.reveal_in_file_manager(sample_file)
+    assert popen_calls[-1] == ["/usr/bin/xdg-open", str(sample_file.parent)]
+
+
+def test_pick_release_asset_windows_and_linux() -> None:
+    from app.updater import _pick_release_asset
+
+    assets = [
+        {"name": "Download-Setup-v1.1.0.exe", "browser_download_url": "https://github.com/a/setup.exe"},
+        {"name": "Download-Portable-v1.1.0.zip", "browser_download_url": "https://github.com/a/portable.zip"},
+        {"name": "Download-v1.1.0-linux-aarch64.AppImage", "browser_download_url": "https://github.com/a/arm.AppImage"},
+        {"name": "Download-v1.1.0-linux-x86_64.AppImage", "browser_download_url": "https://github.com/a/x64.AppImage"},
+        {"name": "Download-Portable-v1.1.0-linux-x86_64.tar.gz", "browser_download_url": "https://github.com/a/x64.tar.gz"},
+        {"name": "Download-v1.1.0-linux-amd64.deb", "browser_download_url": "https://github.com/a/amd64.deb"},
+    ]
+
+    win_pick = _pick_release_asset(assets, platform_name="win32")
+    assert win_pick is not None and win_pick["name"] == "Download-Setup-v1.1.0.exe"
+
+    linux_appimage = _pick_release_asset(
+        assets, platform_name="linux", arch="x86_64", is_appimage=True, writable_app_dir=False
+    )
+    assert linux_appimage is not None and linux_appimage["name"] == "Download-v1.1.0-linux-x86_64.AppImage"
+
+    linux_tar = _pick_release_asset(
+        assets, platform_name="linux", arch="x86_64", is_appimage=False, writable_app_dir=True
+    )
+    assert linux_tar is not None and linux_tar["name"] == "Download-Portable-v1.1.0-linux-x86_64.tar.gz"
+
+    linux_arm = _pick_release_asset(
+        assets, platform_name="linux", arch="aarch64", is_appimage=True, writable_app_dir=False
+    )
+    assert linux_arm is not None and linux_arm["name"] == "Download-v1.1.0-linux-aarch64.AppImage"
+
+    # When only x86_64 binaries exist, aarch64 must not select an x86_64 binary
+    only_x64 = [a for a in assets if "x86_64" in a["name"] or "amd64" in a["name"]]
+    assert (
+        _pick_release_asset(
+            only_x64, platform_name="linux", arch="aarch64", is_appimage=True, writable_app_dir=False
+        )
+        is None
+    )
+
+
+def test_desktop_gui_backend_and_restart_command(monkeypatch) -> None:
+    import desktop_main
+
+    monkeypatch.delenv("DOWNLOAD_GUI", raising=False)
+    assert desktop_main._resolve_gui_backend("win32") == "edgechromium"
+    assert desktop_main._resolve_gui_backend("darwin") == "cocoa"
+
+    # Linux Qt detection
+    monkeypatch.setattr(
+        desktop_main.importlib.util,
+        "find_spec",
+        lambda name: object() if name in {"qtpy", "PyQt6.QtWebEngineWidgets"} else None,
+    )
+    assert desktop_main._resolve_gui_backend("linux") == "qt"
+
+    # Linux GTK fallback detection
+    monkeypatch.setattr(
+        desktop_main.importlib.util,
+        "find_spec",
+        lambda name: object() if name == "gi" else None,
+    )
+    assert desktop_main._resolve_gui_backend("linux") == "gtk"
+
+    # Explicit override
+    monkeypatch.setenv("DOWNLOAD_GUI", "gtk")
+    assert desktop_main._resolve_gui_backend("linux") == "gtk"
+    monkeypatch.delenv("DOWNLOAD_GUI", raising=False)
+
+    # Restart command variants
+    monkeypatch.setattr(desktop_main.sys, "argv", ["desktop_main.py", "--flag"])
+    monkeypatch.setenv("APPIMAGE", "/tmp/Download.AppImage")
+    assert desktop_main._build_restart_command() == ["/tmp/Download.AppImage", "--flag"]
+
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    monkeypatch.setattr(desktop_main, "IS_FROZEN", True)
+    assert desktop_main._build_restart_command() == [sys.executable, "--flag"]
+
+    monkeypatch.setattr(desktop_main, "IS_FROZEN", False)
+    assert desktop_main._build_restart_command() == [sys.executable, "desktop_main.py", "--flag"]
+

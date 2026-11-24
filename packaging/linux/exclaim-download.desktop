@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=!Download
+GenericName=Multimedia Downloader
+Comment=Descarga video y audio con estética Liquid Glass
+Exec=exclaim-download %U
+Icon=exclaim-download
+Terminal=false
+Categories=AudioVideo;Video;Audio;Network;Utility;
+Keywords=youtube;video;audio;downloader;yt-dlp;ffmpeg;
+StartupNotify=true
+StartupWMClass=exclaim-download

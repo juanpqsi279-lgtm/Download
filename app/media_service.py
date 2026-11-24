@@ -11,7 +11,7 @@ from urllib.parse import quote, urlparse
 
 from yt_dlp import YoutubeDL
 
-from app.config import COOKIES_FILE, ensure_runtime_paths, resolve_binary
+from app.config import ensure_runtime_paths, resolve_binary, resolve_cookies_file
 from app.schemas import (
     AudioBitrateOption,
     AudioFormatOption,
@@ -165,8 +165,8 @@ def build_base_ydl_opts() -> dict[str, Any]:
     if deno_path:
         opts["js_runtimes"] = {"deno": {"path": deno_path}}
 
-    cookies_path = Path(COOKIES_FILE)
-    if cookies_path.is_file():
+    cookies_path = resolve_cookies_file()
+    if cookies_path is not None:
         opts["cookiefile"] = str(cookies_path)
 
     return opts

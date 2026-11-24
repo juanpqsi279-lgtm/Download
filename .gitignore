@@ -10,4 +10,7 @@ build/
 dist/
 *.zip
 *.exe
+*.AppImage
+*.deb
+*.tar.gz
 !scripts/

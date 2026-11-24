@@ -368,12 +368,16 @@
       els.openReleasePageLink.hidden = true;
     }
 
+    const selfUpdateSupported = state.appInfo
+      ? (typeof state.appInfo.can_self_update === "boolean"
+          ? state.appInfo.can_self_update
+          : Boolean(state.appInfo.frozen))
+      : false;
     const canSelfUpdate = Boolean(
       data.update_available &&
       data.asset_url &&
       data.asset_name &&
-      state.appInfo &&
-      state.appInfo.frozen
+      selfUpdateSupported
     );
     els.installAppUpdateBtn.hidden = !canSelfUpdate;
   }

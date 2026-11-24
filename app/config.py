@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from typing import Any
 
 APP_NAME = "!Download"
 APP_DEVELOPER = "Juan Corporation"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 GITHUB_REPO = os.getenv("DOWNLOAD_GITHUB_REPO", "juanpqsi279-lgtm/Download")
 
 IS_FROZEN = bool(getattr(sys, "frozen", False))
@@ -21,10 +22,26 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", PROJECT_ROOT))
 APP_DIR = Path(sys.executable).resolve().parent if IS_FROZEN else PROJECT_ROOT
 
+IS_APPIMAGE = bool(os.getenv("APPIMAGE"))
+APPIMAGE_PATH: Path | None = (
+    Path(os.environ["APPIMAGE"]).resolve() if os.getenv("APPIMAGE") else None
+)
+
 STATIC_DIR = BUNDLE_DIR / "static"
 BIN_DIR = APP_DIR / "bin"
 
-USER_DATA_DIR = Path(os.getenv("LOCALAPPDATA") or Path.home()) / APP_DEVELOPER / APP_NAME
+
+def _resolve_user_data_dir() -> Path:
+    if sys.platform == "win32":
+        return Path(os.getenv("LOCALAPPDATA") or Path.home()) / APP_DEVELOPER / APP_NAME
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DEVELOPER / APP_NAME
+    xdg_data = os.getenv("XDG_DATA_HOME")
+    base = Path(xdg_data) if xdg_data else (Path.home() / ".local" / "share")
+    return base / "exclaim-download"
+
+
+USER_DATA_DIR = _resolve_user_data_dir()
 UPDATES_DIR = USER_DATA_DIR / "updates"
 SETTINGS_FILE = USER_DATA_DIR / "settings.json"
 DOWNLOADS_DIR = (USER_DATA_DIR / "temp_downloads") if IS_FROZEN else (PROJECT_ROOT / "downloads")
@@ -37,8 +54,30 @@ COOKIES_FILE = os.getenv("COOKIES_FILE", str(APP_DIR / "cookies.txt"))
 
 
 def is_desktop_mode() -> bool:
-    """Return True when running inside the native desktop window or frozen .exe."""
+    """Return True when running inside the native desktop window or frozen binary."""
     return os.getenv("DOWNLOAD_DESKTOP", "0") == "1" or IS_FROZEN
+
+
+def resolve_cookies_file() -> Path | None:
+    """Locate cookies.txt from COOKIES_FILE / APP_DIR first, then USER_DATA_DIR."""
+    for candidate in (Path(COOKIES_FILE), USER_DATA_DIR / "cookies.txt"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def can_self_update() -> bool:
+    """Return True if the current runtime supports in-place self-updates."""
+    if sys.platform == "win32":
+        return IS_FROZEN
+    if sys.platform.startswith("linux"):
+        appimage = os.getenv("APPIMAGE")
+        if appimage:
+            return os.access(Path(appimage).resolve().parent, os.W_OK)
+        if IS_FROZEN:
+            return os.access(APP_DIR, os.W_OK)
+        return False
+    return False
 
 
 def _candidate_bin_dirs() -> list[Path]:
@@ -69,18 +108,59 @@ def ensure_runtime_paths() -> None:
 def resolve_binary(name: str) -> str | None:
     """Locate a binary across app bin/ directories first, then system PATH."""
     for bin_dir in _candidate_bin_dirs():
-        for candidate in (bin_dir / f"{name}.exe", bin_dir / name):
-            if candidate.is_file():
+        if sys.platform == "win32":
+            candidates = (bin_dir / f"{name}.exe", bin_dir / name)
+            for candidate in candidates:
+                if candidate.is_file():
+                    return str(candidate)
+        else:
+            candidate = bin_dir / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
                 return str(candidate)
     return shutil.which(name)
 
 
+def _xdg_user_download_dir(home: Path | None = None) -> Path | None:
+    """Parse XDG_DOWNLOAD_DIR from ~/.config/user-dirs.dirs if present and valid."""
+    base_home = home or Path.home()
+    xdg_config = os.getenv("XDG_CONFIG_HOME")
+    config_dir = Path(xdg_config) if xdg_config else (base_home / ".config")
+    user_dirs = config_dir / "user-dirs.dirs"
+    if not user_dirs.is_file():
+        return None
+    try:
+        content = user_dirs.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        match = re.match(r'^XDG_DOWNLOAD_DIR\s*=\s*(.+)$', line)
+        if not match:
+            continue
+        raw_val = match.group(1).strip().strip('"').strip("'")
+        expanded = raw_val.replace("${HOME}", str(base_home)).replace("$HOME", str(base_home))
+        candidate = Path(expanded).expanduser()
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def default_download_dir() -> Path:
     """Default folder where completed downloads are saved in desktop mode."""
-    downloads = Path.home() / "Downloads"
-    if downloads.exists():
-        return downloads
-    return Path.home()
+    home = Path.home()
+    if sys.platform != "win32":
+        xdg_downloads = _xdg_user_download_dir(home)
+        if xdg_downloads is not None:
+            return xdg_downloads
+
+    for folder_name in ("Downloads", "Descargas"):
+        candidate = home / folder_name
+        if candidate.exists():
+            return candidate
+    return home
 
 
 def load_settings() -> dict[str, Any]:
@@ -130,15 +210,15 @@ def get_download_dir() -> Path:
 def _read_binary_version(binary_path: str, flag: str) -> str | None:
     """Run a binary with a version flag and return its first output line."""
     try:
-        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        completed = subprocess.run(
-            [binary_path, flag],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-            creationflags=creationflags,
-        )
+        run_kwargs: dict[str, Any] = {
+            "capture_output": True,
+            "text": True,
+            "timeout": 5,
+            "check": False,
+        }
+        if sys.platform == "win32":
+            run_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        completed = subprocess.run([binary_path, flag], **run_kwargs)
         output = (completed.stdout or completed.stderr or "").strip()
         if not output:
             return None
