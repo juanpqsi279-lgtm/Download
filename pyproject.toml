@@ -1,0 +1,27 @@
+[project]
+name = "exclaim-download"
+version = "1.0.0"
+description = "!Download by Juan Corporation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "yt-dlp[default]",
+    "httpx>=0.28.0",
+    "pywebview>=5.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pyinstaller>=6.10.0",
+    "pillow>=10.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

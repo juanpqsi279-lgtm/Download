@@ -1,0 +1,73 @@
+name: Build and Release !Download
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv and Python 3.13
+        uses: astral-sh/setup-uv@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv\Scripts\python.exe -e ".[dev]"
+
+      - name: Download portable FFmpeg and Deno
+        shell: pwsh
+        run: |
+          $ProgressPreference = "SilentlyContinue"
+          New-Item -ItemType Directory -Force -Path bin, _tmp | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip" -OutFile "_tmp\ffmpeg.zip"
+          Expand-Archive -Path "_tmp\ffmpeg.zip" -DestinationPath "_tmp\ffmpeg" -Force
+          Copy-Item (Get-ChildItem "_tmp\ffmpeg" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1).FullName "bin\ffmpeg.exe" -Force
+          Copy-Item (Get-ChildItem "_tmp\ffmpeg" -Recurse -Filter "ffprobe.exe" | Select-Object -First 1).FullName "bin\ffprobe.exe" -Force
+
+          Invoke-WebRequest -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile "_tmp\deno.zip"
+          Expand-Archive -Path "_tmp\deno.zip" -DestinationPath "_tmp\deno" -Force
+          Copy-Item (Get-ChildItem "_tmp\deno" -Recurse -Filter "deno.exe" | Select-Object -First 1).FullName "bin\deno.exe" -Force
+          Remove-Item "_tmp" -Recurse -Force
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\pytest.exe -v
+
+      - name: Build !Download executable
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\pyinstaller.exe --noconfirm --clean build.spec
+          .\dist\!Download\!Download.exe --self-check
+
+      - name: Build installer and portable archive
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) { $env:GITHUB_REF_NAME } else { "v1.0.0" }
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc installer.iss
+          }
+          Compress-Archive -Path "dist\!Download" -DestinationPath "dist\!Download-Portable-$tag.zip" -Force
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/!Download-Setup-*.exe
+            dist/!Download-Portable-*.zip

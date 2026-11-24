@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>!Download — Juan Corporation</title>
+  <link rel="icon" type="image/png" href="/static/icon.png">
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("exclaim_download_theme");
+        var theme = saved === "light" || saved === "dark"
+          ? saved
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="ambient-scene" aria-hidden="true">
+    <div class="ambient-orb ambient-orb-1"></div>
+    <div class="ambient-orb ambient-orb-2"></div>
+    <div class="ambient-orb ambient-orb-3"></div>
+  </div>
+
+  <div class="app-shell">
+    <header class="topbar liquid-glass">
+      <div class="brand">
+        <img class="brand-icon" src="/static/icon.png" alt="!Download" width="40" height="40">
+        <div class="brand-text">
+          <span class="brand-name">!Download</span>
+          <span class="brand-dev">Juan Corporation</span>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button type="button" class="update-pill" id="updatePill" hidden title="Actualización disponible">
+          <span class="update-dot"></span>
+          <span id="updatePillText">Nueva versión</span>
+        </button>
+
+        <div class="status-cluster" id="runtimeMiniStatus" title="Estado de motores locales">
+          <span class="engine-dot" data-tool="yt_dlp" title="yt-dlp"></span>
+          <span class="engine-dot" data-tool="ffmpeg" title="FFmpeg"></span>
+          <span class="engine-dot" data-tool="deno" title="Deno"></span>
+        </div>
+
+        <button
+          type="button"
+          class="theme-toggle"
+          id="themeToggleBtn"
+          aria-label="Cambiar entre modo claro y oscuro"
+          title="Alternar modo claro / oscuro"
+        >
+          <span class="theme-thumb" aria-hidden="true"></span>
+          <span class="theme-icon theme-icon-moon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
+            </svg>
+          </span>
+          <span class="theme-icon theme-icon-sun" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2" />
+              <path d="M12 20v2" />
+              <path d="m4.93 4.93 1.41 1.41" />
+              <path d="m17.66 17.66 1.41 1.41" />
+              <path d="M2 12h2" />
+              <path d="M20 12h2" />
+              <path d="m6.34 17.66-1.41 1.41" />
+              <path d="m19.07 4.93-1.41 1.41" />
+            </svg>
+          </span>
+        </button>
+
+        <button type="button" class="glass-icon-btn" id="openSettingsBtn" aria-label="Ajustes y actualizaciones" title="Ajustes, motores y actualizaciones">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <section class="hero-card liquid-glass">
+        <div class="hero-copy">
+          <h1>Multimedia en máxima calidad, directo a tu equipo</h1>
+          <p>Analiza cualquier enlace para inspeccionar su resolución, códecs, tasa de bits y metadatos antes de descargarlo en video o audio sin pérdida.</p>
+        </div>
+
+        <form class="url-form" id="analyzeForm" novalidate>
+          <div class="glass-input-wrap">
+            <span class="input-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+            </span>
+            <input
+              type="url"
+              id="urlInput"
+              name="url"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Pega un enlace de YouTube, TikTok, Instagram, X, SoundCloud..."
+              aria-label="Enlace multimedia"
+            >
+            <button type="button" class="clear-btn" id="clearBtn" title="Limpiar enlace" hidden aria-label="Limpiar enlace">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 6 6 18" />
+                <path d="m6 6 12 12" />
+              </svg>
+            </button>
+            <button type="button" class="glass-pill-btn" id="pasteBtn">Pegar</button>
+          </div>
+
+          <button type="submit" class="accent-btn" id="analyzeBtn">
+            <span class="btn-spinner" aria-hidden="true"></span>
+            <span class="btn-label">Analizar</span>
+          </button>
+        </form>
+
+        <div class="platform-strip" aria-label="Plataformas compatibles">
+          <span class="micro-pill">YouTube</span>
+          <span class="micro-pill">TikTok</span>
+          <span class="micro-pill">Instagram</span>
+          <span class="micro-pill">X / Twitter</span>
+          <span class="micro-pill">Twitch</span>
+          <span class="micro-pill">Reddit</span>
+          <span class="micro-pill">Vimeo</span>
+          <span class="micro-pill">SoundCloud</span>
+          <span class="micro-pill micro-pill-accent">+1,000 sitios</span>
+        </div>
+
+        <div class="glass-alert" id="errorBanner" role="alert" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 8v4" />
+            <path d="M12 16h.01" />
+          </svg>
+          <span id="errorMessage"></span>
+        </div>
+      </section>
+
+      <section class="media-card liquid-glass spring-reveal" id="mediaSection" hidden>
+        <div class="media-header">
+          <div class="thumb-frame">
+            <img id="mediaThumb" alt="Vista previa del contenido" hidden>
+            <div class="thumb-fallback" id="thumbFallback" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="4" width="20" height="16" rx="3" />
+                <polygon points="10 9 16 12 10 15 10 9" />
+              </svg>
+            </div>
+            <span class="thumb-pill duration-pill" id="mediaDuration" hidden></span>
+            <span class="thumb-pill live-pill" id="mediaLiveBadge" hidden>EN VIVO</span>
+          </div>
+
+          <div class="media-meta">
+            <div class="meta-chips">
+              <span class="chip chip-accent" id="mediaPlatform">Web</span>
+              <span class="chip" id="mediaMaxRes" hidden></span>
+              <span class="chip" id="mediaSourceAudio" hidden></span>
+              <span class="chip" id="mediaSubtitles" hidden></span>
+              <button type="button" class="chip chip-link" id="openSourceBtn" hidden title="Abrir enlace original">
+                <span>Origen</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M15 3h6v6" />
+                  <path d="M10 14 21 3" />
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                </svg>
+              </button>
+            </div>
+
+            <h2 id="mediaTitle">Título del contenido</h2>
+
+            <div class="meta-stats">
+              <span class="stat-item" id="mediaUploader" hidden></span>
+              <span class="stat-item" id="mediaDate" hidden></span>
+              <span class="stat-item" id="mediaViews" hidden></span>
+              <span class="stat-item" id="mediaLikes" hidden></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="inspector-accordion">
+          <button type="button" class="accordion-trigger" id="detailsToggleBtn" aria-expanded="false">
+            <span class="accordion-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+              <span>Detalles completos y especificaciones del stream</span>
+            </span>
+            <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
+          <div class="accordion-panel" id="detailsPanel">
+            <div class="accordion-inner">
+              <div class="specs-grid" id="specsGrid"></div>
+              <div class="description-box" id="descriptionBox" hidden>
+                <span class="spec-label">Descripción</span>
+                <p id="mediaDescription"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="segmented-control" id="modeSegmented" role="tablist" aria-label="Tipo de descarga">
+          <span class="segmented-thumb" id="segmentedThumb" aria-hidden="true"></span>
+          <button type="button" class="segmented-btn is-active" id="tabVideo" role="tab" aria-selected="true" data-mode="video">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="5" width="15" height="14" rx="2.5" />
+              <path d="m17 10 5-3v10l-5-3Z" />
+            </svg>
+            <span>Video</span>
+          </button>
+          <button type="button" class="segmented-btn" id="tabAudio" role="tab" aria-selected="false" data-mode="audio">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+            <span>Solo Audio</span>
+          </button>
+        </div>
+
+        <div class="config-panel" id="videoPanel">
+          <div class="field-block">
+            <div class="field-header">
+              <span class="field-title">Resolución de video</span>
+              <span class="field-hint">Pista de audio óptima combinada automáticamente</span>
+            </div>
+            <div class="choice-grid" id="videoQualityGrid"></div>
+            <div class="glass-note" id="noVideoNote" hidden>
+              Este enlace solo contiene pistas de audio. Selecciona <strong>Solo Audio</strong> arriba para descargarlo.
+            </div>
+          </div>
+
+          <div class="field-block">
+            <div class="field-header">
+              <span class="field-title">Contenedor</span>
+            </div>
+            <div class="pill-row" id="containerPills"></div>
+          </div>
+        </div>
+
+        <div class="config-panel" id="audioPanel" hidden>
+          <div class="field-block">
+            <div class="field-header">
+              <span class="field-title">Formato de salida</span>
+            </div>
+            <div class="choice-grid format-grid" id="audioFormatGrid"></div>
+          </div>
+
+          <div class="field-block">
+            <div class="field-header">
+              <span class="field-title">Tasa de bits (Bitrate)</span>
+              <span class="field-hint">Mayor kbps conserva más detalle armónico</span>
+            </div>
+            <div class="choice-grid bitrate-grid" id="audioBitrateGrid"></div>
+            <div class="glass-note" id="losslessNote" hidden>
+              Formato <strong>sin pérdida (Lossless)</strong> seleccionado: conservará el audio completo sin compresión por bitrate.
+            </div>
+          </div>
+        </div>
+
+        <div class="download-footer">
+          <div class="footer-left">
+            <div class="folder-pill" id="folderPill" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+              </svg>
+              <span id="folderPathText">Descargas</span>
+              <button type="button" class="text-link-btn" id="quickFolderBtn">Cambiar</button>
+            </div>
+
+            <label class="ios-switch-row">
+              <span class="ios-switch">
+                <input type="checkbox" id="embedMetadata" checked>
+                <span class="ios-slider"></span>
+              </span>
+              <span>Incluir metadatos (título y autor)</span>
+            </label>
+          </div>
+
+          <button type="button" class="accent-btn download-cta" id="startDownloadBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v12" />
+              <path d="m7 10 5 5 5-5" />
+              <path d="M5 20h14" />
+            </svg>
+            <span id="downloadBtnText">Descargar</span>
+          </button>
+        </div>
+      </section>
+
+      <section class="progress-card liquid-glass spring-reveal" id="progressSection" hidden>
+        <div class="progress-top">
+          <div class="progress-heading">
+            <span class="status-pill" id="progressBadge">Descargando</span>
+            <h3 id="progressTitle">Preparando descarga...</h3>
+            <p class="progress-meta" id="progressMeta"></p>
+          </div>
+          <div class="progress-percent" id="progressPercent">0%</div>
+        </div>
+
+        <div class="liquid-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack">
+          <div class="liquid-progress-fill" id="progressFill"></div>
+        </div>
+
+        <div class="progress-bottom">
+          <div class="progress-stats">
+            <span id="progressStage">Iniciando...</span>
+            <span id="progressSpeed"></span>
+            <span id="progressEta"></span>
+            <span id="progressSize"></span>
+          </div>
+
+          <div class="progress-actions">
+            <button type="button" class="danger-pill-btn" id="cancelJobBtn">Cancelar</button>
+            <button type="button" class="glass-pill-btn" id="openSavedFolderBtn" hidden>Mostrar en carpeta</button>
+            <button type="button" class="accent-btn compact-btn" id="openSavedFileBtn" hidden>Abrir archivo</button>
+            <a class="accent-btn compact-btn" id="saveFileBtn" href="#" download hidden>Guardar archivo</a>
+          </div>
+        </div>
+
+        <div class="saved-path-line" id="savedPathLine" hidden></div>
+      </section>
+
+      <section class="history-card liquid-glass" id="historySection" hidden>
+        <div class="history-header">
+          <div>
+            <h3>Descargas recientes</h3>
+            <p class="history-sub" id="historySub">Historial local reciente de !Download.</p>
+          </div>
+          <button type="button" class="glass-pill-btn" id="clearHistoryBtn">Limpiar</button>
+        </div>
+        <div class="history-list" id="historyList"></div>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <span id="footerCredit">!Download v1.0.0 · Juan Corporation</span>
+    </footer>
+  </div>
+
+  <div class="modal-backdrop" id="settingsModal" hidden>
+    <div class="modal-sheet liquid-glass" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-header">
+        <div class="modal-brand">
+          <img src="/static/icon.png" alt="!Download" width="36" height="36">
+          <div>
+            <h2 id="modalTitle">!Download</h2>
+            <p id="modalVersionSub">v1.0.0 · Juan Corporation</p>
+          </div>
+        </div>
+        <button type="button" class="glass-icon-btn" id="closeSettingsBtn" aria-label="Cerrar ajustes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-section" id="modalFolderSection" hidden>
+          <span class="modal-section-title">Carpeta de descargas</span>
+          <div class="modal-row">
+            <code class="path-code" id="modalFolderPath">-</code>
+            <div class="modal-row-actions">
+              <button type="button" class="glass-pill-btn" id="modalOpenFolderBtn">Abrir</button>
+              <button type="button" class="glass-pill-btn" id="modalChooseFolderBtn">Cambiar</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-head">
+            <span class="modal-section-title">Motores integrados</span>
+            <button type="button" class="glass-pill-btn" id="updateEngineBtn">Actualizar motor</button>
+          </div>
+          <div class="tools-grid" id="modalToolsGrid"></div>
+          <div class="modal-feedback" id="engineFeedback" hidden></div>
+          <button type="button" class="accent-btn compact-btn" id="restartAppBtn" hidden>Reiniciar !Download ahora</button>
+        </div>
+
+        <div class="modal-section">
+          <div class="modal-section-head">
+            <span class="modal-section-title">Actualizaciones de !Download</span>
+            <button type="button" class="glass-pill-btn" id="checkAppUpdateBtn">Buscar actualización</button>
+          </div>
+          <div class="update-box" id="appUpdateBox">
+            <p class="update-status-text" id="appUpdateText">Conectado a GitHub Releases (Juan Corporation).</p>
+            <pre class="release-notes" id="appReleaseNotes" hidden></pre>
+            <div class="update-actions">
+              <button type="button" class="accent-btn compact-btn" id="installAppUpdateBtn" hidden>Instalar actualización</button>
+              <a class="glass-pill-btn" id="openReleasePageLink" href="#" target="_blank" rel="noopener" hidden>Ver en GitHub</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

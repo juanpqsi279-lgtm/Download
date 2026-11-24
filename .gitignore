@@ -1,0 +1,13 @@
+.venv/
+bin/
+downloads/
+__pycache__/
+*.pyc
+.pytest_cache/
+cookies.txt
+*.egg-info/
+build/
+dist/
+*.zip
+*.exe
+!scripts/

@@ -1,0 +1,14 @@
+services:
+  libredl:
+    build: .
+    container_name: libredl
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MAX_CONCURRENT_DOWNLOADS=3
+      - FILE_TTL_SECONDS=1800
+    volumes:
+      - ./downloads:/app/downloads
+    restart: unless-stopped
