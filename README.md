@@ -2,20 +2,25 @@
 
 Aplicación de escritorio y web local desarrollada por **Juan Corporation** con estética **iOS 27 Liquid Glass** (modo oscuro y modo claro, animaciones fluidas e inspector completo de metadatos) para descargar contenido multimedia en múltiples calidades de **video** (hasta 4K/8K en MP4, MKV o WebM) o **solo audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
 
-## Descargar desde Releases (Windows y Linux)
+## Descargar desde Releases (Windows, Linux y Android)
 
 Si solo quieres usar `!Download` sin instalar herramientas ni compilar nada, descarga la última versión todo incluido desde **GitHub Releases**:
 
 👉 **[Descargar última versión (Releases)](https://github.com/juanpqsi279-lgtm/Download/releases/latest)**
 
 ### Windows
-- **`Download-Setup-v1.1.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
-- **`Download-Portable-v1.1.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
+- **`Download-Setup-v1.2.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
+- **`Download-Portable-v1.2.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
 
 ### Linux (`x86_64` / `amd64`)
-- **`Download-v1.1.0-linux-x86_64.AppImage`**: ejecutable portable universal (`chmod +x` y ejecutar; soporta auto-actualizaciones).
-- **`Download-v1.1.0-linux-amd64.deb`**: paquete para Debian, Ubuntu, Linux Mint y Pop!_OS (`sudo apt install ./Download-v1.1.0-linux-amd64.deb`).
-- **`Download-Portable-v1.1.0-linux-x86_64.tar.gz`**: archivo portable (descomprimir y ejecutar `./exclaim-download/exclaim-download`; incluye `./exclaim-download/install-desktop.sh` para crear acceso directo y soporta auto-actualizaciones).
+- **`Download-v1.2.0-linux-x86_64.AppImage`**: ejecutable portable universal (`chmod +x` y ejecutar; soporta auto-actualizaciones).
+- **`Download-v1.2.0-linux-amd64.deb`**: paquete para Debian, Ubuntu, Linux Mint y Pop!_OS (`sudo apt install ./Download-v1.2.0-linux-amd64.deb`).
+- **`Download-Portable-v1.2.0-linux-x86_64.tar.gz`**: archivo portable (descomprimir y ejecutar `./exclaim-download/exclaim-download`; incluye `./exclaim-download/install-desktop.sh` para crear acceso directo y soporta auto-actualizaciones).
+
+### Android (`.apk` todo incluido)
+- **`Download-v1.2.0-android-arm64.apk`**: recomendado para la mayoría de teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.2.0-android-universal.apk`**: compatible con cualquier arquitectura Android (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+- Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Download/!Download/`, notificaciones de progreso, opción **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK desde Ajustes.
 
 ---
 
@@ -66,9 +71,20 @@ uv pip install --python .venv\Scripts\python.exe -e ".[dev]"
 
 > El script [scripts/build_linux_packages.sh](scripts/build_linux_packages.sh) compila el binario con PyInstaller, valida `--self-check --check-gui` y genera los paquetes `.AppImage`, `.deb` y `.tar.gz` en `dist/`.
 
+### Android
+
+Requiere JDK 17, Android SDK (API 35) y Gradle 8.11+:
+
+```bash
+gradle -p android testDebugUnitTest
+gradle -p android assembleRelease
+```
+
+> El flujo de GitHub Actions compila automáticamente `Download-v*-android-arm64.apk` y `Download-v*-android-universal.apk` en cada release.
+
 ## Publicar una nueva versión en GitHub Releases
 
-El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables de **Windows** y **Linux**, verifica `--self-check`, genera todos los instaladores/paquetes y publica los archivos automáticamente al subir una etiqueta `v*`:
+El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux** y **Android**, verifica `--self-check` y publica todos los archivos automáticamente al subir una etiqueta `v*`:
 
 ```bash
 git tag v1.0.1 && git push origin v1.0.1

@@ -121,8 +121,12 @@
     return Boolean(window.pywebview && window.pywebview.api);
   }
 
+  function hasAndroidBridge() {
+    return Boolean(window.AndroidBridge);
+  }
+
   function isDesktopMode() {
-    return Boolean((state.appInfo && state.appInfo.desktop_mode) || hasDesktopBridge());
+    return Boolean((state.appInfo && state.appInfo.desktop_mode) || hasDesktopBridge() || hasAndroidBridge());
   }
 
   function getCurrentTheme() {
@@ -139,6 +143,13 @@
     }
     if (hasDesktopBridge() && typeof window.pywebview.api.set_window_theme === "function") {
       window.pywebview.api.set_window_theme(normalized).catch(() => {});
+    }
+    if (hasAndroidBridge() && typeof window.AndroidBridge.setSystemBarTheme === "function") {
+      try {
+        window.AndroidBridge.setSystemBarTheme(normalized);
+      } catch {
+        // Ignore Android bridge error
+      }
     }
     if (persistRemote) {
       fetch("/api/settings", {
@@ -250,8 +261,11 @@
   function updateFolderDisplays(dirPath) {
     const clean = dirPath || "";
     const desktop = isDesktopMode();
+    const isAndroid = Boolean((state.appInfo && state.appInfo.platform === "android") || hasAndroidBridge());
     els.folderPill.hidden = !desktop || !clean;
     els.modalFolderSection.hidden = !desktop || !clean;
+    els.quickFolderBtn.hidden = isAndroid;
+    els.modalChooseFolderBtn.hidden = isAndroid;
     if (clean) {
       const parts = clean.split(/[\\/]/).filter(Boolean);
       const shortName = parts.length > 0 ? parts[parts.length - 1] : clean;
@@ -1215,10 +1229,14 @@
   els.pasteBtn.addEventListener("click", async () => {
     clearError();
     try {
-      if (!navigator.clipboard || !navigator.clipboard.readText) {
+      let text = "";
+      if (hasAndroidBridge() && typeof window.AndroidBridge.readClipboardText === "function") {
+        text = String(window.AndroidBridge.readClipboardText() || "").trim();
+      } else if (navigator.clipboard && navigator.clipboard.readText) {
+        text = (await navigator.clipboard.readText()).trim();
+      } else {
         throw new Error("Clipboard unavailable");
       }
-      const text = (await navigator.clipboard.readText()).trim();
       if (!text) {
         showError("El portapapeles está vacío.");
         return;
@@ -1229,7 +1247,7 @@
         analyzeUrl(text);
       }
     } catch {
-      showError("No se pudo leer el portapapeles automáticamente. Usa Ctrl+V en el campo.");
+      showError("No se pudo leer el portapapeles automáticamente. Pega el enlace en el campo.");
       els.urlInput.focus();
     }
   });
@@ -1246,6 +1264,8 @@
     if (!target) return;
     if (hasDesktopBridge() && typeof window.pywebview.api.open_external_url === "function") {
       window.pywebview.api.open_external_url(target).catch(() => {});
+    } else if (hasAndroidBridge() && typeof window.AndroidBridge.openExternalUrl === "function") {
+      window.AndroidBridge.openExternalUrl(target);
     } else {
       window.open(target, "_blank", "noopener");
     }
@@ -1348,6 +1368,16 @@
     applyTheme(getCurrentTheme(), false);
     loadAppInfo();
   });
+
+  window.__receiveSharedUrl = function (sharedUrl) {
+    const cleaned = String(sharedUrl || "").trim();
+    if (!cleaned) return;
+    els.urlInput.value = cleaned;
+    updateClearButton();
+    clearError();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    analyzeUrl(cleaned);
+  };
 
   // Init
   updateClearButton();
