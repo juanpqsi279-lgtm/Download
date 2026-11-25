@@ -1,56 +1,106 @@
 # !Download
 
-Aplicación de escritorio y web local desarrollada por **Juan Corporation** con estética **iOS 27 Liquid Glass** (modo oscuro y modo claro, animaciones fluidas e inspector completo de metadatos) para descargar contenido multimedia en múltiples calidades de **video** (hasta 4K/8K en MP4, MKV o WebM) o **solo audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
+Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporation** con estética **iOS 27 Liquid Glass** (modo oscuro y modo claro, animaciones fluidas e inspector completo de metadatos) para descargar contenido multimedia en múltiples calidades de **video** (hasta 4K/8K en MP4, MKV o WebM) o **solo audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
 
-## Descargar desde Releases (Windows, Linux, Android e iPhone)
-
-Si solo quieres usar `!Download` sin instalar herramientas ni compilar nada, descarga la última versión todo incluido desde **GitHub Releases**:
-
-👉 **[Descargar última versión (Releases)](https://github.com/juanpqsi279-lgtm/Download/releases/latest)**
-
-### Windows
-- **`Download-Setup-v1.3.0.exe`**: instalador clásico para Windows (crea accesos directos y soporta auto-actualizaciones).
-- **`Download-Portable-v1.3.0.zip`**: versión portable (descomprimir y abrir `!Download.exe`).
-  > **Importante (Error 4551 / Windows Smart App Control):** si tu Windows 11 tiene *Control de aplicaciones inteligente (Smart App Control)* activado, bloqueará cualquier `.exe` descargado que no cuente con certificado digital (*Authenticode*). En ese equipo usa **[`!Download-Desktop.bat`](!Download-Desktop.bat)** (corre sobre Python firmado), o agrega secretos `WINDOWS_CERT_PFX_BASE64` y `WINDOWS_CERT_PASSWORD` en GitHub para firmar el `.exe` automáticamente en cada release.
-
-### Linux (`x86_64` / `amd64`)
-- **`Download-v1.3.0-linux-x86_64.AppImage`**: ejecutable portable universal (`chmod +x` y ejecutar; soporta auto-actualizaciones).
-- **`Download-v1.3.0-linux-amd64.deb`**: paquete para Debian, Ubuntu, Linux Mint y Pop!_OS (`sudo apt install ./Download-v1.3.0-linux-amd64.deb`).
-- **`Download-Portable-v1.3.0-linux-x86_64.tar.gz`**: archivo portable (descomprimir y ejecutar `./exclaim-download/exclaim-download`; incluye `./exclaim-download/install-desktop.sh` para crear acceso directo y soporta auto-actualizaciones).
-
-### Android (`.apk` todo incluido)
-- **`Download-v1.3.0-android-arm64.apk`**: recomendado para la mayoría de teléfonos Android modernos (`arm64-v8a`, más ligero).
-- **`Download-v1.3.0-android-universal.apk`**: compatible con cualquier arquitectura Android (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
-- Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Download/!Download/`, notificaciones de progreso, opción **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK desde Ajustes.
-
-### iPhone / iPad (`Download-v1.3.0-ios.ipa`)
-- **`Download-v1.3.0-ios.ipa`**: app iOS nativa con UI Liquid Glass (`WKWebView`), Python 3.14 + `yt-dlp` embebido, **Apple JavaScriptCore** para retos de YouTube y **AVFoundation** para unir video + audio en MP4 y guardar directo en **Archivos → En mi iPhone → `!Download`** (con botón para guardar en Fototeca/AirDrop).
-- **Cómo instalar el `.ipa` en iPhone sin App Store:** usa **[AltStore](https://altstore.io/)**, **[SideStore](https://sidestore.io/)**, **Sideloadly** o **TrollStore**.
-- **Alternativa sin instalar `.ipa` (PWA en Safari):** corre `!Download` en tu PC/Mac en la red local o por Cloudflare Tunnel, ábrelo en **Safari** y pulsa **Compartir → Añadir a pantalla de inicio**.
+👉 **[Descargar última versión todo incluido (GitHub Releases)](https://github.com/juanpqsi279-lgtm/Download/releases/latest)**
 
 ---
 
-## Ejecutar desde el código fuente (todo automático)
+## Guía de instalación por sistema operativo
 
-### Windows
+### Windows (10 / 11)
 
-Haz doble clic en:
+- **Opción 1 — Instalador (`Download-Setup-v1.3.0.exe`):**
+  1. Descarga **`Download-Setup-v1.3.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+  2. Ejecuta el instalador para crear los accesos directos y activar auto-actualizaciones.
+- **Opción 2 — Portable (`Download-Portable-v1.3.0.zip`):**
+  1. Descarga y descomprime **`Download-Portable-v1.3.0.zip`**.
+  2. Abre **`!Download.exe`**.
+- **Opción 3 — Ejecutar desde código fuente (recomendado si Windows bloquea el `.exe`):**
+  1. Clona o descarga este repositorio.
+  2. Haz doble clic en **[`!Download-Desktop.bat`](!Download-Desktop.bat)** para abrir la ventana nativa de escritorio, o en **[`start.bat`](start.bat)** / **[`start.ps1`](start.ps1)** para iniciar el servidor local en `http://127.0.0.1:8000`.
+  3. En el primer arranque, [scripts/bootstrap.ps1](scripts/bootstrap.ps1) instala automáticamente `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno`.
 
-- **[`!Download-Desktop.bat`](!Download-Desktop.bat)** — abre `!Download` en su propia ventana nativa de escritorio (sin abrir navegador).
-- **[`start.bat`](start.bat)** o **[`start.ps1`](start.ps1)** — inicia el servidor local en `http://127.0.0.1:8000`.
+> **Importante sobre Error 4551 / Windows 11 Smart App Control:** si tu PC tiene activo *Control inteligente de aplicaciones*, Windows puede bloquear archivos `.exe` que aún no cuenten con firma digital (*Authenticode*). En ese caso usa **`!Download-Desktop.bat`** (corre sobre Python firmado oficialmente) mientras se completa la firma con SignPath. Consulta [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
-> En la primera ejecución, [scripts/bootstrap.ps1](scripts/bootstrap.ps1) detecta automáticamente si falta `.venv` o `bin/` e instala `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno` de forma automática.
+---
 
-> **Nota sobre Windows 11 Smart App Control:** en equipos con Control de aplicaciones / Smart App Control activo, Windows puede bloquear ejecutables `.exe` sin firma digital (*Authenticode*). En ese caso, usa `!Download-Desktop.bat` para abrir exactamente la misma ventana nativa.
+### Linux (`x86_64` / `amd64`)
 
-### Linux
+- **Opción 1 — AppImage universal (`Download-v1.3.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
+  ```bash
+  chmod +x Download-v1.3.0-linux-x86_64.AppImage
+  ./Download-v1.3.0-linux-x86_64.AppImage
+  ```
+  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.3.0-linux-x86_64.AppImage --appimage-extract-and-run`.
+- **Opción 2 — Paquete `.deb` (`Download-v1.3.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
+  ```bash
+  sudo apt install ./Download-v1.3.0-linux-amd64.deb
+  ```
+  Luego ábrelo desde tu menú de aplicaciones o ejecutando `exclaim-download` en terminal.
+- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.3.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
+  ```bash
+  tar -xzf Download-Portable-v1.3.0-linux-x86_64.tar.gz
+  ./exclaim-download/exclaim-download
+  ```
+  Si deseas agregar acceso directo al menú del sistema, ejecuta `./exclaim-download/install-desktop.sh`.
+- **Opción 4 — Ejecutar desde código fuente:**
+  ```bash
+  chmod +x download-desktop.sh start.sh
+  ./download-desktop.sh   # Ventana nativa de escritorio (PyQt6-WebEngine)
+  ./start.sh              # Servidor web local en http://127.0.0.1:8000 (sin Qt)
+  ```
+  En la primera ejecución, [scripts/bootstrap.sh](scripts/bootstrap.sh) instala automáticamente `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno`.
 
-Ejecuta en una terminal:
+---
 
-- **[`./download-desktop.sh`](download-desktop.sh)** — abre `!Download` en su propia ventana nativa de escritorio (`PyQt6-WebEngine`).
-- **[`./start.sh`](start.sh)** — inicia el servidor web local en `http://127.0.0.1:8000` (solo requiere modo web, sin Qt).
+### Android (`.apk` todo incluido)
 
-> En la primera ejecución, [scripts/bootstrap.sh](scripts/bootstrap.sh) detecta automáticamente si falta `.venv` o `bin/` e instala `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno` de forma automática.
+- **`Download-v1.3.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.3.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+
+**Pasos de instalación:**
+1. Descarga el `.apk` desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest) en tu teléfono.
+2. Ábrelo desde Descargas o tu gestor de archivos; si Android lo solicita, activa **Instalar aplicaciones desconocidas** para tu navegador o gestor de archivos.
+3. Pulsa **Instalar** y concede permiso de notificaciones/almacenamiento cuando lo pida.
+4. Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Descargas/!Download/`, **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK desde Ajustes.
+
+---
+
+### iPhone / iPad (`Download-v1.3.0-ios.ipa` + Safari PWA)
+
+En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID (la primera vez requiere conectar tu iPhone a una PC o Mac). Tus descargas se guardan en la app **Archivos → En mi iPhone → `!Download`** (con botón para compartir o guardar en Fotos).
+
+- **Opción 1 — [Sideloadly](https://sideloadly.io/) *(la más rápida desde PC/Mac)*:**
+  1. Descarga e instala Sideloadly desde su sitio oficial: **https://sideloadly.io/**.
+  2. **Solo en Windows:** instala las versiones **web** (NO las de Microsoft Store) de **[iTunes 64-bit](https://www.apple.com/itunes/win64)** ([32-bit](https://www.apple.com/itunes/win32)) e **[iCloud para Windows](https://support.apple.com/HT204283)** (también enlazados dentro de [sideloadly.io](https://sideloadly.io/)). Reinicia la PC si es la primera vez.
+  3. Descarga **`Download-v1.3.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+  4. Conecta tu iPhone por cable USB de datos, desbloquéalo y pulsa **Confiar** si te lo pregunta.
+  5. Arrastra el `.ipa` a Sideloadly, escribe tu Apple ID y pulsa **Start**.
+  6. En tu iPhone (solo la primera vez):
+     - En **iOS 16+**, activa *Ajustes → Privacidad y seguridad → Modo de desarrollador*.
+     - Ve a *Ajustes → General → VPN y gestión de dispositivos* y pulsa **Confiar** en tu Apple ID.
+  > Con Apple ID gratuito la firma caduca cada 7 días; Sideloadly puede renovarla automáticamente por Wi-Fi mientras tu PC esté encendida.
+
+- **Opción 2 — [SideStore](https://sidestore.io/) *(PC solo 1 vez; luego instalas y renuevas desde el mismo iPhone)*:**
+  Instala SideStore una vez siguiendo la guía oficial en **https://sidestore.io/**; después podrás abrir `Download-v1.3.0-ios.ipa` y renovarlo directo en tu iPhone sin PC.
+
+- **Opción 3 — [AltStore](https://altstore.io/) *(PC/Mac + iPhone por Wi-Fi)*:**
+  Instala AltServer en tu PC/Mac desde **https://altstore.io/** e instala el `.ipa` desde AltStore en tu iPhone.
+
+- **Opción 4 — [TrollStore](https://github.com/opa334/TrollStore) *(solo versiones de iOS compatibles, sin caducidad de 7 días)*:**
+  Permite instalar `Download-v1.3.0-ios.ipa` de forma permanente desde **https://github.com/opa334/TrollStore**.
+
+- **Opción 5 — Sin instalar `.ipa` (PWA en Safari):**
+  Ejecuta `!Download` en tu PC o Mac dentro de la misma red Wi-Fi, abre la dirección en **Safari** desde tu iPhone y pulsa **Compartir → Añadir a pantalla de inicio**.
+
+---
+
+## Firma digital y seguridad (Code Signing)
+
+Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Consulta todos los detalles sobre los binarios firmados y el proceso de verificación en [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
 
 ## Sistema de actualizaciones en 2 niveles
 
@@ -105,3 +155,7 @@ El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compi
 ```bash
 git tag v1.3.0 && git push origin v1.3.0
 ```
+
+## Licencia
+
+Distribuido bajo licencia **MIT**. Consulta [LICENSE](LICENSE) para más información.

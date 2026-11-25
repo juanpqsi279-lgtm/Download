@@ -54,16 +54,52 @@ jobs:
           $p = Start-Process -FilePath ".\dist\!Download\!Download.exe" -ArgumentList "--self-check" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)" }
 
+      - name: Upload unsigned !Download.exe for SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        id: upload-unsigned-exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-exe
+          path: dist/!Download/!Download.exe
+
+      - name: Sign !Download.exe with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'download' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signpath-exe
+
+      - name: Apply signed !Download.exe
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        shell: pwsh
+        run: |
+          $outDir = "dist\signpath-exe"
+          $zip = Get-ChildItem $outDir -Recurse -Filter "*.zip" | Select-Object -First 1
+          if ($zip) {
+            Expand-Archive -Path $zip.FullName -DestinationPath "$outDir\_extracted" -Force
+          }
+          $signedExe = Get-ChildItem $outDir -Recurse -Filter "*.exe" | Select-Object -First 1
+          if (-not $signedExe) { throw "Signed executable not found in $outDir" }
+          Copy-Item $signedExe.FullName "dist\!Download\!Download.exe" -Force
+          Remove-Item $outDir -Recurse -Force
+
       - name: Build installer and portable archive
         shell: pwsh
         env:
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
           $tag = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) { $env:GITHUB_REF_NAME } else { "v1.3.0" }
           $certPath = $null
           $signtool = $null
-          if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)) {
+          $useLocalCert = [string]::IsNullOrWhiteSpace($env:SIGNPATH_ORGANIZATION_ID) -and (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64))
+          if ($useLocalCert) {
             $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
             [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
             $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName
@@ -76,13 +112,50 @@ jobs:
           if ($iscc -and (Test-Path $iscc)) {
             & $iscc installer.iss
           }
-          if ($certPath -and $signtool) {
+          if ($useLocalCert -and $certPath -and $signtool) {
             Get-ChildItem "dist\*.exe" | ForEach-Object {
               & $signtool sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $_.FullName
             }
             Remove-Item $certPath -Force -ErrorAction SilentlyContinue
           }
           Compress-Archive -Path "dist\!Download" -DestinationPath "dist\!Download-Portable-$tag.zip" -Force
+
+      - name: Upload unsigned Windows installer for SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        id: upload-unsigned-installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-unsigned-installer
+          path: dist/!Download-Setup-*.exe
+
+      - name: Sign Windows installer with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'download' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signpath-installer
+
+      - name: Apply signed Windows installer
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        shell: pwsh
+        run: |
+          $outDir = "dist\signpath-installer"
+          $zip = Get-ChildItem $outDir -Recurse -Filter "*.zip" | Select-Object -First 1
+          if ($zip) {
+            Expand-Archive -Path $zip.FullName -DestinationPath "$outDir\_extracted" -Force
+          }
+          $signedInstaller = Get-ChildItem $outDir -Recurse -Filter "*.exe" | Select-Object -First 1
+          $targetInstaller = Get-ChildItem "dist\!Download-Setup-*.exe" | Select-Object -First 1
+          if (-not $signedInstaller -or -not $targetInstaller) {
+            throw "Missing signed installer ($signedInstaller) or target installer ($targetInstaller)"
+          }
+          Copy-Item $signedInstaller.FullName $targetInstaller.FullName -Force
+          Remove-Item $outDir -Recurse -Force
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -162,8 +235,8 @@ jobs:
 
       - name: Package Android APK artifacts
         run: |
-          TAG="${GITHUB_REF_NAME:-v1.2.0}"
-          if [[ "$TAG" != v* ]]; then TAG="v1.2.0"; fi
+          TAG="${GITHUB_REF_NAME:-v1.3.0}"
+          if [[ "$TAG" != v* ]]; then TAG="v1.3.0"; fi
           mkdir -p dist
           ARM64_APK=$(find android/app/build/outputs/apk/release -name "*arm64-v8a*.apk" | head -n 1)
           UNIV_APK=$(find android/app/build/outputs/apk/release -name "*universal*.apk" | head -n 1)
@@ -248,6 +321,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: "*-dist"
           merge-multiple: true
 
       - name: Publish GitHub Release
