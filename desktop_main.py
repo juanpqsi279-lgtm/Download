@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Windowed PyInstaller binaries on Windows can have None stdout/stderr.
 if sys.stdout is None:
@@ -111,6 +111,77 @@ def _build_restart_command() -> list[str]:
     return [sys.executable, *sys.argv]
 
 
+def _invoke_winforms(native: Any, fn: Callable[[], Any], wait: bool = True) -> Any:
+    """Marshal a WinForms call onto the STA UI thread without holding the GIL across Invoke."""
+    if native is not None and getattr(native, "InvokeRequired", False):
+        try:
+            import System
+
+            done = threading.Event()
+            result_box: dict[str, Any] = {}
+
+            def _run() -> None:
+                try:
+                    result_box["value"] = fn()
+                except Exception as exc:
+                    result_box["error"] = exc
+                finally:
+                    done.set()
+
+            native.BeginInvoke(System.Action(_run))
+            if not wait:
+                return None
+            done.wait()
+            if "error" in result_box:
+                raise result_box["error"]
+            return result_box.get("value")
+        except Exception:
+            if not wait:
+                return None
+    return fn()
+
+
+def _read_windows_clipboard_text() -> str:
+    """Read CF_UNICODETEXT from the Windows clipboard without stalling WebView2."""
+    if sys.platform != "win32":
+        return ""
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    user32.OpenClipboard.argtypes = [ctypes.c_void_p]
+    user32.OpenClipboard.restype = ctypes.c_int
+    user32.IsClipboardFormatAvailable.argtypes = [ctypes.c_uint]
+    user32.IsClipboardFormatAvailable.restype = ctypes.c_int
+    user32.GetClipboardData.argtypes = [ctypes.c_uint]
+    user32.GetClipboardData.restype = ctypes.c_void_p
+    user32.CloseClipboard.argtypes = []
+    user32.CloseClipboard.restype = ctypes.c_int
+    kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalLock.restype = ctypes.c_void_p
+    kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+    kernel32.GlobalUnlock.restype = ctypes.c_int
+
+    cf_unicode_text = 13
+    if not user32.IsClipboardFormatAvailable(cf_unicode_text):
+        return ""
+    if not user32.OpenClipboard(None):
+        return ""
+    try:
+        handle = user32.GetClipboardData(cf_unicode_text)
+        if not handle:
+            return ""
+        ptr = kernel32.GlobalLock(handle)
+        if not ptr:
+            return ""
+        try:
+            return str(ctypes.wstring_at(ptr) or "")
+        finally:
+            kernel32.GlobalUnlock(handle)
+    except Exception:
+        return ""
+    finally:
+        user32.CloseClipboard()
+
+
 def _apply_dwm_dark_mode(window: webview.Window, is_dark: bool) -> None:
     if sys.platform != "win32" or window is None:
         return
@@ -118,18 +189,22 @@ def _apply_dwm_dark_mode(window: webview.Window, is_dark: bool) -> None:
         native = getattr(window, "native", None)
         if native is None or not hasattr(native, "Handle"):
             return
-        hwnd = int(native.Handle.ToInt64())
-        value = ctypes.c_int(1 if is_dark else 0)
-        dwmapi = ctypes.windll.dwmapi
-        for attr in (20, 19):
-            res = dwmapi.DwmSetWindowAttribute(
-                ctypes.c_void_p(hwnd),
-                ctypes.c_uint(attr),
-                ctypes.byref(value),
-                ctypes.sizeof(value),
-            )
-            if res == 0:
-                break
+
+        def _apply() -> None:
+            hwnd = int(native.Handle.ToInt64())
+            value = ctypes.c_int(1 if is_dark else 0)
+            dwmapi = ctypes.windll.dwmapi
+            for attr in (20, 19):
+                res = dwmapi.DwmSetWindowAttribute(
+                    ctypes.c_void_p(hwnd),
+                    ctypes.c_uint(attr),
+                    ctypes.byref(value),
+                    ctypes.sizeof(value),
+                )
+                if res == 0:
+                    break
+
+        _invoke_winforms(native, _apply, wait=False)
     except Exception:
         pass
 
@@ -189,22 +264,43 @@ class DesktopBridge:
     """JS-Python bridge exposed as window.pywebview.api inside the native webview."""
 
     def __init__(self, server: uvicorn.Server) -> None:
-        self.server = server
-        self.window: webview.Window | None = None
+        # Prefix internal objects with '_' so pywebview does not reflectively crawl them.
+        self._server = server
+        self._window: webview.Window | None = None
+        self._dialog_lock = threading.Lock()
 
     def select_download_folder(self) -> str | None:
-        if self.window is None:
+        if self._window is None:
             return None
-        current = str(get_download_dir())
-        selected = self.window.create_file_dialog(
-            webview.FileDialog.FOLDER,
-            directory=current,
-        )
-        if isinstance(selected, str) and selected.strip():
-            return selected
-        if selected and len(selected) > 0:
-            return str(selected[0])
-        return None
+        if not self._dialog_lock.acquire(blocking=False):
+            return None
+        try:
+            current = str(get_download_dir())
+
+            def _open_dialog() -> Any:
+                assert self._window is not None
+                return self._window.create_file_dialog(
+                    webview.FileDialog.FOLDER,
+                    directory=current,
+                )
+
+            if sys.platform == "win32":
+                selected = _invoke_winforms(
+                    getattr(self._window, "native", None), _open_dialog, wait=True
+                )
+            else:
+                selected = _open_dialog()
+
+            if isinstance(selected, str) and selected.strip():
+                return selected
+            if selected and len(selected) > 0:
+                return str(selected[0])
+            return None
+        finally:
+            self._dialog_lock.release()
+
+    def read_clipboard_text(self) -> str:
+        return _read_windows_clipboard_text()
 
     def open_folder(self, path: str) -> bool:
         target = Path(path)
@@ -227,10 +323,10 @@ class DesktopBridge:
             return False
 
     def set_window_theme(self, theme: str) -> bool:
-        if self.window is None:
+        if self._window is None:
             return False
         is_dark = theme != "light"
-        _apply_window_theme(self.window, is_dark)
+        _apply_window_theme(self._window, is_dark)
         return True
 
     def open_external_url(self, url: str) -> bool:
@@ -240,10 +336,10 @@ class DesktopBridge:
         def _spawn_and_exit() -> None:
             time.sleep(0.25)
             spawn_detached(_build_restart_command())
-            self.server.should_exit = True
-            if self.window is not None:
+            self._server.should_exit = True
+            if self._window is not None:
                 try:
-                    self.window.destroy()
+                    self._window.destroy()
                 except Exception:
                     pass
             os._exit(0)
@@ -324,7 +420,7 @@ def main() -> int:
 
         settings = load_settings()
         is_dark = settings.get("theme") != "light"
-        bg_hex = "#07090e" if is_dark else "#edf0f6"
+        bg_hex = "#141416" if is_dark else "#f5f5f7"
 
         bridge = DesktopBridge(server)
         window = webview.create_window(
@@ -337,7 +433,7 @@ def main() -> int:
             background_color=bg_hex,
             text_select=True,
         )
-        bridge.window = window
+        bridge._window = window
 
         def _on_started(win: webview.Window) -> None:
             _apply_window_theme(win, is_dark)

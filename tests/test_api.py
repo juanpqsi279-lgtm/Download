@@ -418,3 +418,9 @@ def test_desktop_gui_backend_and_restart_command(monkeypatch) -> None:
     monkeypatch.setattr(desktop_main, "IS_FROZEN", False)
     assert desktop_main._build_restart_command() == [sys.executable, "desktop_main.py", "--flag"]
 
+    bridge = desktop_main.DesktopBridge(object())  # type: ignore[arg-type]
+    public_attrs = [name for name in dir(bridge) if not name.startswith("_")]
+    assert "window" not in public_attrs
+    assert "server" not in public_attrs
+    assert all(callable(getattr(bridge, name)) for name in public_attrs)
+

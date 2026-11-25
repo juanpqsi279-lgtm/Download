@@ -25,395 +25,562 @@
   </script>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-  <div class="ambient-scene" aria-hidden="true">
-    <div class="ambient-orb ambient-orb-1"></div>
-    <div class="ambient-orb ambient-orb-2"></div>
-    <div class="ambient-orb ambient-orb-3"></div>
-  </div>
-
-  <div class="app-shell">
-    <header class="topbar liquid-glass">
-      <div class="brand">
-        <img class="brand-icon" src="/static/icon.png" alt="!Download" width="40" height="40">
-        <div class="brand-text">
+<body data-active-view="download">
+  <div class="apple-shell" id="appShell">
+    <!-- Desktop macOS 26 Tahoe Translucent Sidebar -->
+    <aside class="apple-sidebar" aria-label="Navegación principal">
+      <div class="sidebar-brand">
+        <img class="brand-squircle" src="/static/icon.png" alt="!Download" width="38" height="38">
+        <div class="sidebar-brand-copy">
           <span class="brand-name">!Download</span>
           <span class="brand-dev">Juan Corporation</span>
         </div>
       </div>
 
-      <div class="topbar-actions">
+      <nav class="sidebar-nav" id="sidebarNav">
+        <button type="button" class="sidebar-item is-active" data-view="download">
+          <span class="sf-squircle sf-blue" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 4v11" />
+              <path d="m7.5 11.5 4.5 4.5 4.5-4.5" />
+              <path d="M5 19h14" />
+            </svg>
+          </span>
+          <span class="sidebar-label">Descargar</span>
+        </button>
+
+        <button type="button" class="sidebar-item" data-view="activity">
+          <span class="sf-squircle sf-indigo" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="8.5" />
+              <path d="M12 7.5v4.8l3.2 1.9" />
+            </svg>
+          </span>
+          <span class="sidebar-label">Actividad</span>
+          <span class="sidebar-count" id="navActivityBadge" hidden>0</span>
+        </button>
+
+        <button type="button" class="sidebar-item" data-view="engines">
+          <span class="sf-squircle sf-orange" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="6" y="6" width="12" height="12" rx="2.5" />
+              <path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4" />
+            </svg>
+          </span>
+          <span class="sidebar-label">Motores</span>
+          <span class="sidebar-dot" id="sidebarEngineDot" aria-hidden="true"></span>
+        </button>
+
+        <button type="button" class="sidebar-item" data-view="settings">
+          <span class="sf-squircle sf-gray" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.66 0-1.25.4-1.51 1Z" />
+            </svg>
+          </span>
+          <span class="sidebar-label">Ajustes</span>
+          <span class="sidebar-dot is-update" id="sidebarUpdateDot" hidden aria-hidden="true"></span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
         <button type="button" class="update-pill" id="updatePill" hidden title="Actualización disponible">
           <span class="update-dot"></span>
           <span id="updatePillText">Nueva versión</span>
         </button>
+        <span class="sidebar-credit" id="footerCredit">!Download · Juan Corporation</span>
+      </div>
+    </aside>
 
-        <div class="status-cluster" id="runtimeMiniStatus" title="Estado de motores locales">
-          <span class="engine-dot" data-tool="yt_dlp" title="yt-dlp"></span>
-          <span class="engine-dot" data-tool="ffmpeg" title="FFmpeg"></span>
-          <span class="engine-dot" data-tool="deno" title="Deno"></span>
+    <!-- Main Content Column -->
+    <div class="apple-main">
+      <!-- Desktop Frosted Titlebar -->
+      <header class="apple-topbar">
+        <div class="topbar-left">
+          <h1 class="topbar-title" id="viewTitle">Descargar</h1>
         </div>
+      </header>
 
-        <button
-          type="button"
-          class="theme-toggle"
-          id="themeToggleBtn"
-          aria-label="Cambiar entre modo claro y oscuro"
-          title="Alternar modo claro / oscuro"
-        >
-          <span class="theme-thumb" aria-hidden="true"></span>
-          <span class="theme-icon theme-icon-moon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Mobile iOS 27 Large Title Header -->
+      <header class="mobile-header">
+        <div class="mobile-header-brand">
+          <img class="mobile-brand-icon" src="/static/icon.png" alt="!Download" width="32" height="32">
+          <h1 class="mobile-large-title" id="mobileLargeTitle">!Download</h1>
+        </div>
+        <div class="mobile-header-actions">
+          <button type="button" class="glass-circle-btn" id="mobileUpdateBtn" hidden aria-label="Actualización disponible" title="Actualización disponible">
+            <span class="mobile-btn-badge"></span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 17V5" />
+              <path d="m7 10 5-5 5 5" />
+              <path d="M5 20h14" />
+            </svg>
+          </button>
+          <button type="button" class="glass-circle-btn" id="mobileThemeBtn" aria-label="Cambiar apariencia" title="Cambiar modo claro / oscuro">
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z" />
             </svg>
-          </span>
-          <span class="theme-icon theme-icon-sun" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2" />
-              <path d="M12 20v2" />
-              <path d="m4.93 4.93 1.41 1.41" />
-              <path d="m17.66 17.66 1.41 1.41" />
-              <path d="M2 12h2" />
-              <path d="M20 12h2" />
-              <path d="m6.34 17.66-1.41 1.41" />
-              <path d="m19.07 4.93-1.41 1.41" />
+              <path d="M12 2v2M12 20v2m-7.07-15.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2M20 12h2m-15.66 5.66-1.41 1.41M19.07 4.93l-1.41 1.41" />
             </svg>
-          </span>
-        </button>
+          </button>
+        </div>
+      </header>
 
-        <button type="button" class="glass-icon-btn" id="openSettingsBtn" aria-label="Ajustes y actualizaciones" title="Ajustes, motores y actualizaciones">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-          </svg>
-        </button>
-      </div>
-    </header>
+      <main class="apple-content">
+        <!-- Live Activity Banner (shared across Descargar & Actividad) -->
+        <div class="live-banner-slot" id="liveBannerSlot">
+          <section class="live-activity-card apple-card spring-reveal" id="progressSection" hidden>
+            <div class="live-top">
+              <div class="live-squircle" id="progressIconSquircle" aria-hidden="true">
+                <span class="ios-spinner" id="progressSpinner">
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </span>
+                <svg class="live-check-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m5 12.5 4.8 4.8L19 7" />
+                </svg>
+                <svg class="live-error-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 8v5" />
+                  <circle cx="12" cy="16.5" r="0.8" fill="currentColor" />
+                </svg>
+              </div>
 
-    <main class="main-content">
-      <section class="hero-card liquid-glass">
-        <div class="hero-copy">
-          <h1>Multimedia en máxima calidad, directo a tu equipo</h1>
-          <p>Analiza cualquier enlace para inspeccionar su resolución, códecs, tasa de bits y metadatos antes de descargarlo en video o audio sin pérdida.</p>
+              <div class="live-heading">
+                <div class="live-badge-row">
+                  <span class="status-pill" id="progressBadge">Descargando</span>
+                  <span class="live-meta-inline" id="progressMeta"></span>
+                </div>
+                <h3 id="progressTitle">Preparando descarga...</h3>
+              </div>
+
+              <div class="progress-percent" id="progressPercent">0%</div>
+            </div>
+
+            <div class="liquid-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack">
+              <div class="liquid-progress-fill" id="progressFill"></div>
+            </div>
+
+            <div class="progress-bottom">
+              <div class="progress-stats">
+                <span id="progressStage">Iniciando...</span>
+                <span id="progressSpeed"></span>
+                <span id="progressEta"></span>
+                <span id="progressSize"></span>
+              </div>
+
+              <div class="progress-actions">
+                <button type="button" class="danger-pill-btn" id="cancelJobBtn">Cancelar</button>
+                <button type="button" class="apple-secondary-pill" id="openSavedFolderBtn" hidden>Mostrar en carpeta</button>
+                <button type="button" class="apple-blue-pill" id="openSavedFileBtn" hidden>Abrir archivo</button>
+                <a class="apple-blue-pill" id="saveFileBtn" href="#" download hidden>Guardar archivo</a>
+              </div>
+            </div>
+
+            <div class="saved-path-line" id="savedPathLine" hidden></div>
+          </section>
         </div>
 
-        <form class="url-form" id="analyzeForm" novalidate>
-          <div class="glass-input-wrap">
-            <span class="input-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-            </span>
-            <input
-              type="url"
-              id="urlInput"
-              name="url"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="Pega un enlace de YouTube, TikTok, Instagram, X, SoundCloud..."
-              aria-label="Enlace multimedia"
-            >
-            <button type="button" class="clear-btn" id="clearBtn" title="Limpiar enlace" hidden aria-label="Limpiar enlace">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
+        <!-- VIEW 1: DESCARGAR -->
+        <section class="app-view" id="viewDownload" data-view-panel="download">
+          <!-- Shortcuts / Apple Intelligence Hero Composer -->
+          <div class="hero-composer apple-card" id="heroComposer">
+            <img class="hero-app-icon" src="/static/icon.png" alt="!Download" width="54" height="54">
+            <h2>¿Qué quieres descargar?</h2>
+            <p class="hero-prompt-sub">Inspecciona video hasta 8K o extrae audio sin pérdida desde más de 1,000 sitios.</p>
+          </div>
+
+          <!-- Floating Apple Capsule Search / Link Input -->
+          <form class="capsule-url-form" id="analyzeForm" novalidate>
+            <div class="apple-capsule-input">
+              <span class="input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+              </span>
+              <input
+                type="url"
+                id="urlInput"
+                name="url"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="Pega un enlace de YouTube, TikTok, Instagram, X..."
+                aria-label="Enlace multimedia"
+              >
+              <button type="button" class="clear-btn" id="clearBtn" title="Limpiar enlace" hidden aria-label="Limpiar enlace">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+              <button type="button" class="apple-secondary-pill compact-paste" id="pasteBtn">Pegar</button>
+            </div>
+
+            <button type="submit" class="circle-submit-btn" id="analyzeBtn" aria-label="Analizar enlace" title="Analizar enlace">
+              <span class="ios-spinner submit-spinner" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </span>
+              <svg class="submit-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 19V5" />
+                <path d="m6 11 6-6 6 6" />
               </svg>
             </button>
-            <button type="button" class="glass-pill-btn" id="pasteBtn">Pegar</button>
-          </div>
+          </form>
 
-          <button type="submit" class="accent-btn" id="analyzeBtn">
-            <span class="btn-spinner" aria-hidden="true"></span>
-            <span class="btn-label">Analizar</span>
-          </button>
-        </form>
-
-        <div class="platform-strip" aria-label="Plataformas compatibles">
-          <span class="micro-pill">YouTube</span>
-          <span class="micro-pill">TikTok</span>
-          <span class="micro-pill">Instagram</span>
-          <span class="micro-pill">X / Twitter</span>
-          <span class="micro-pill">Twitch</span>
-          <span class="micro-pill">Reddit</span>
-          <span class="micro-pill">Vimeo</span>
-          <span class="micro-pill">SoundCloud</span>
-          <span class="micro-pill micro-pill-accent">+1,000 sitios</span>
-        </div>
-
-        <div class="glass-alert" id="errorBanner" role="alert" hidden>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 8v4" />
-            <path d="M12 16h.01" />
-          </svg>
-          <span id="errorMessage"></span>
-        </div>
-      </section>
-
-      <section class="media-card liquid-glass spring-reveal" id="mediaSection" hidden>
-        <div class="media-header">
-          <div class="thumb-frame">
-            <img id="mediaThumb" alt="Vista previa del contenido" hidden>
-            <div class="thumb-fallback" id="thumbFallback" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="2" y="4" width="20" height="16" rx="3" />
-                <polygon points="10 9 16 12 10 15 10 9" />
-              </svg>
-            </div>
-            <span class="thumb-pill duration-pill" id="mediaDuration" hidden></span>
-            <span class="thumb-pill live-pill" id="mediaLiveBadge" hidden>EN VIVO</span>
-          </div>
-
-          <div class="media-meta">
-            <div class="meta-chips">
-              <span class="chip chip-accent" id="mediaPlatform">Web</span>
-              <span class="chip" id="mediaMaxRes" hidden></span>
-              <span class="chip" id="mediaSourceAudio" hidden></span>
-              <span class="chip" id="mediaSubtitles" hidden></span>
-              <button type="button" class="chip chip-link" id="openSourceBtn" hidden title="Abrir enlace original">
-                <span>Origen</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M15 3h6v6" />
-                  <path d="M10 14 21 3" />
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+          <!-- iOS 27 3 Quick Action Squircle Tiles (shown when idle) -->
+          <div class="quick-tiles-row" id="quickTiles">
+            <button type="button" class="quick-tile apple-card" id="tilePasteBtn">
+              <span class="quick-tile-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="8" y="2" width="8" height="4" rx="1" />
+                  <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
                 </svg>
+              </span>
+              <span class="quick-tile-title">Pegar enlace</span>
+            </button>
+
+            <button type="button" class="quick-tile apple-card" id="tileActivityBtn">
+              <span class="quick-tile-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </span>
+              <span class="quick-tile-title">Actividad reciente</span>
+            </button>
+
+            <button type="button" class="quick-tile apple-card" id="tileFolderBtn">
+              <span class="quick-tile-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+                </svg>
+              </span>
+              <span class="quick-tile-title" id="tileFolderLabel">Carpeta destino</span>
+            </button>
+          </div>
+
+          <div class="apple-alert" id="errorBanner" role="alert" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 8v4M12 16h.01" />
+            </svg>
+            <span id="errorMessage"></span>
+          </div>
+
+          <!-- Media Inspector & Inset Grouped Controls -->
+          <section class="media-workspace spring-reveal" id="mediaSection" hidden>
+            <!-- Immersive Blurred-Thumbnail Sheet (iOS Visual Look Up / Media Sheet) -->
+            <div class="media-sheet-hero">
+              <img class="media-sheet-bg" id="mediaThumbBg" alt="" aria-hidden="true" hidden>
+
+              <div class="media-sheet-visual">
+                <div class="thumb-frame">
+                  <img id="mediaThumb" alt="Vista previa del contenido" hidden>
+                  <div class="thumb-fallback" id="thumbFallback" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="4" width="20" height="16" rx="3" />
+                      <polygon points="10 9 16 12 10 15 10 9" />
+                    </svg>
+                  </div>
+                  <span class="thumb-pill duration-pill" id="mediaDuration" hidden></span>
+                  <span class="thumb-pill live-pill" id="mediaLiveBadge" hidden>EN VIVO</span>
+                </div>
+
+                <div class="sheet-floating-actions">
+                  <button type="button" class="sheet-circle-btn" id="openSourceBtn" hidden title="Abrir enlace original" aria-label="Abrir enlace original">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    </svg>
+                  </button>
+                  <button type="button" class="sheet-circle-btn" id="resetMediaBtn" title="Analizar otro enlace" aria-label="Cerrar análisis">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Liquid Glass Overlay Inside Media Card -->
+              <div class="media-glass-sheet">
+                <div class="sheet-chips">
+                  <span class="sheet-chip sheet-chip-accent" id="mediaPlatform">Web</span>
+                  <span class="sheet-chip" id="mediaMaxRes" hidden></span>
+                  <span class="sheet-chip" id="mediaSourceAudio" hidden></span>
+                  <span class="sheet-chip" id="mediaSubtitles" hidden></span>
+                </div>
+
+                <h2 id="mediaTitle">Título del contenido</h2>
+
+                <div class="sheet-stats">
+                  <span id="mediaUploader" hidden></span>
+                  <span id="mediaDate" hidden></span>
+                  <span id="mediaViews" hidden></span>
+                  <span id="mediaLikes" hidden></span>
+                </div>
+
+                <div class="sheet-hairline"></div>
+
+                <!-- Apple 5-Segment Stepped Quality Meter -->
+                <div class="quality-meter-block">
+                  <div class="quality-meter-head">
+                    <div>
+                      <div class="quality-meter-value" id="qualityMeterValue">1080p HD</div>
+                      <div class="quality-meter-sub" id="qualityMeterLabel">Calidad seleccionada</div>
+                    </div>
+                    <button type="button" class="info-circle-btn" id="qualityMeterInfoBtn" title="Ver detalles técnicos" aria-label="Ver detalles técnicos">i</button>
+                  </div>
+                  <div class="quality-meter-bars" id="qualityMeter" aria-hidden="true">
+                    <span></span><span></span><span></span><span></span><span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- iOS Segmented Control -->
+            <div class="segmented-control" id="modeSegmented" role="tablist" aria-label="Tipo de descarga">
+              <span class="segmented-thumb" id="segmentedThumb" aria-hidden="true"></span>
+              <button type="button" class="segmented-btn is-active" id="tabVideo" role="tab" aria-selected="true" data-mode="video">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="2" y="5" width="15" height="14" rx="2.5" />
+                  <path d="m17 10 5-3v10l-5-3Z" />
+                </svg>
+                <span>Video</span>
+              </button>
+              <button type="button" class="segmented-btn" id="tabAudio" role="tab" aria-selected="false" data-mode="audio">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+                <span>Solo Audio</span>
               </button>
             </div>
 
-            <h2 id="mediaTitle">Título del contenido</h2>
+            <!-- Video Inset Grouped Selection -->
+            <div class="config-panel" id="videoPanel">
+              <div class="inset-section">
+                <div class="inset-section-header">
+                  <span>Resolución de video</span>
+                  <span class="inset-header-hint">Audio óptimo combinado</span>
+                </div>
+                <div class="inset-group" id="videoQualityGrid"></div>
+                <div class="apple-note" id="noVideoNote" hidden>
+                  Este enlace solo contiene pistas de audio. Selecciona <strong>Solo Audio</strong> arriba para descargarlo.
+                </div>
+              </div>
 
-            <div class="meta-stats">
-              <span class="stat-item" id="mediaUploader" hidden></span>
-              <span class="stat-item" id="mediaDate" hidden></span>
-              <span class="stat-item" id="mediaViews" hidden></span>
-              <span class="stat-item" id="mediaLikes" hidden></span>
+              <div class="inset-section">
+                <div class="inset-section-header">
+                  <span>Contenedor</span>
+                </div>
+                <div class="container-pills-row" id="containerPills"></div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div class="inspector-accordion">
-          <button type="button" class="accordion-trigger" id="detailsToggleBtn" aria-expanded="false">
-            <span class="accordion-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M12 16v-4" />
-                <path d="M12 8h.01" />
+            <!-- Audio Inset Grouped Selection -->
+            <div class="config-panel" id="audioPanel" hidden>
+              <div class="inset-section">
+                <div class="inset-section-header">
+                  <span>Formato de salida</span>
+                </div>
+                <div class="inset-group" id="audioFormatGrid"></div>
+              </div>
+
+              <div class="inset-section">
+                <div class="inset-section-header">
+                  <span>Tasa de bits (Bitrate)</span>
+                  <span class="inset-header-hint">Mayor kbps = más detalle</span>
+                </div>
+                <div class="inset-group" id="audioBitrateGrid"></div>
+                <div class="apple-note" id="losslessNote" hidden>
+                  Formato <strong>sin pérdida (Lossless)</strong> seleccionado: conservará el audio completo sin compresión por bitrate.
+                </div>
+              </div>
+            </div>
+
+            <!-- Inset Disclosure Row for Technical Inspector -->
+            <div class="inset-group disclosure-group">
+              <button type="button" class="inset-row disclosure-trigger" id="detailsToggleBtn" aria-expanded="false">
+                <span class="disclosure-left">
+                  <span class="sf-squircle sf-blue sf-sm" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 16v-4M12 8h.01" />
+                    </svg>
+                  </span>
+                  <span>Especificaciones del stream y descripción</span>
+                </span>
+                <svg class="disclosure-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+              </button>
+
+              <div class="accordion-panel" id="detailsPanel">
+                <div class="accordion-inner">
+                  <div class="specs-list" id="specsGrid"></div>
+                  <div class="description-box" id="descriptionBox" hidden>
+                    <span class="spec-label">Descripción</span>
+                    <p id="mediaDescription"></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Options Inset Grouped Card -->
+            <div class="inset-group options-group">
+              <div class="inset-row" id="folderPill" hidden>
+                <div class="inset-row-main">
+                  <span class="inset-row-title" id="folderPathText">Descargas</span>
+                  <span class="inset-row-sub">Carpeta de destino</span>
+                </div>
+                <button type="button" class="apple-text-btn" id="quickFolderBtn">Cambiar</button>
+              </div>
+
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Incluir metadatos</span>
+                  <span class="inset-row-sub">Título y autor en el archivo</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="embedMetadata" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+            </div>
+
+            <button type="button" class="apple-primary-cta" id="startDownloadBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12m-5-5 5 5 5-5M5 20h14" />
               </svg>
-              <span>Detalles completos y especificaciones del stream</span>
-            </span>
-            <svg class="accordion-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-          </button>
+              <span id="downloadBtnText">Descargar</span>
+            </button>
+          </section>
+        </section>
 
-          <div class="accordion-panel" id="detailsPanel">
-            <div class="accordion-inner">
-              <div class="specs-grid" id="specsGrid"></div>
-              <div class="description-box" id="descriptionBox" hidden>
-                <span class="spec-label">Descripción</span>
-                <p id="mediaDescription"></p>
+        <!-- VIEW 2: ACTIVIDAD -->
+        <section class="app-view" id="viewActivity" data-view-panel="activity" hidden>
+          <div class="inset-section-header view-section-head">
+            <div>
+              <h2>Descargas recientes</h2>
+              <p class="view-section-sub" id="historySub">Historial local reciente de !Download.</p>
+            </div>
+            <button type="button" class="apple-text-btn" id="clearHistoryBtn">Limpiar</button>
+          </div>
+
+          <div class="inset-group history-group" id="historySection" hidden>
+            <div class="inset-group-inner" id="historyList"></div>
+          </div>
+
+          <div class="empty-apple-state apple-card" id="historyEmptyState">
+            <span class="empty-squircle" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 4v11m-4.5-3.5L12 16l4.5-4.5M5 19h14" />
+              </svg>
+            </span>
+            <h3>Sin descargas recientes</h3>
+            <p>Las descargas que inicies aparecerán aquí con su progreso y acceso rápido al archivo.</p>
+          </div>
+        </section>
+
+        <!-- VIEW 3: MOTORES -->
+        <section class="app-view" id="viewEngines" data-view-panel="engines" hidden>
+          <div class="inset-section">
+            <div class="inset-section-header">
+              <span>Motores integrados</span>
+              <button type="button" class="apple-text-btn" id="updateEngineBtn">Actualizar motor</button>
+            </div>
+            <div class="inset-group" id="modalToolsGrid"></div>
+            <div class="engine-feedback-text" id="engineFeedback" hidden></div>
+            <button type="button" class="apple-primary-cta compact-cta" id="restartAppBtn" hidden>Reiniciar !Download ahora</button>
+          </div>
+        </section>
+
+        <!-- VIEW 4: AJUSTES -->
+        <section class="app-view" id="viewSettings" data-view-panel="settings" hidden>
+          <div class="settings-hero">
+            <img src="/static/icon.png" alt="!Download" width="60" height="60">
+            <h2>!Download</h2>
+            <p id="modalVersionSub">v1.4.0 · Juan Corporation</p>
+          </div>
+
+          <div class="inset-section">
+            <div class="inset-section-header">
+              <span>Apariencia</span>
+            </div>
+            <div class="inset-group appearance-group">
+              <div class="segmented-control appearance-segmented" role="group" aria-label="Tema de la aplicación">
+                <span class="segmented-thumb appearance-thumb" aria-hidden="true"></span>
+                <button type="button" class="segmented-btn" id="settingsThemeLight">Claro</button>
+                <button type="button" class="segmented-btn" id="settingsThemeDark">Oscuro</button>
               </div>
             </div>
           </div>
-        </div>
 
-        <div class="segmented-control" id="modeSegmented" role="tablist" aria-label="Tipo de descarga">
-          <span class="segmented-thumb" id="segmentedThumb" aria-hidden="true"></span>
-          <button type="button" class="segmented-btn is-active" id="tabVideo" role="tab" aria-selected="true" data-mode="video">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="2" y="5" width="15" height="14" rx="2.5" />
-              <path d="m17 10 5-3v10l-5-3Z" />
-            </svg>
-            <span>Video</span>
-          </button>
-          <button type="button" class="segmented-btn" id="tabAudio" role="tab" aria-selected="false" data-mode="audio">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9 18V5l12-2v13" />
-              <circle cx="6" cy="18" r="3" />
-              <circle cx="18" cy="16" r="3" />
-            </svg>
-            <span>Solo Audio</span>
-          </button>
-        </div>
-
-        <div class="config-panel" id="videoPanel">
-          <div class="field-block">
-            <div class="field-header">
-              <span class="field-title">Resolución de video</span>
-              <span class="field-hint">Pista de audio óptima combinada automáticamente</span>
+          <div class="inset-section" id="modalFolderSection" hidden>
+            <div class="inset-section-header">
+              <span>Carpeta de descargas</span>
             </div>
-            <div class="choice-grid" id="videoQualityGrid"></div>
-            <div class="glass-note" id="noVideoNote" hidden>
-              Este enlace solo contiene pistas de audio. Selecciona <strong>Solo Audio</strong> arriba para descargarlo.
+            <div class="inset-group">
+              <div class="inset-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Ubicación actual</span>
+                  <code class="path-code" id="modalFolderPath">-</code>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" class="apple-secondary-pill" id="modalOpenFolderBtn">Abrir</button>
+                  <button type="button" class="apple-text-btn" id="modalChooseFolderBtn">Cambiar</button>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="field-block">
-            <div class="field-header">
-              <span class="field-title">Contenedor</span>
+          <div class="inset-section">
+            <div class="inset-section-header">
+              <span>Actualizaciones de !Download</span>
+              <button type="button" class="apple-text-btn" id="checkAppUpdateBtn">Buscar</button>
             </div>
-            <div class="pill-row" id="containerPills"></div>
-          </div>
-        </div>
-
-        <div class="config-panel" id="audioPanel" hidden>
-          <div class="field-block">
-            <div class="field-header">
-              <span class="field-title">Formato de salida</span>
-            </div>
-            <div class="choice-grid format-grid" id="audioFormatGrid"></div>
-          </div>
-
-          <div class="field-block">
-            <div class="field-header">
-              <span class="field-title">Tasa de bits (Bitrate)</span>
-              <span class="field-hint">Mayor kbps conserva más detalle armónico</span>
-            </div>
-            <div class="choice-grid bitrate-grid" id="audioBitrateGrid"></div>
-            <div class="glass-note" id="losslessNote" hidden>
-              Formato <strong>sin pérdida (Lossless)</strong> seleccionado: conservará el audio completo sin compresión por bitrate.
+            <div class="inset-group update-card-group">
+              <div class="update-card-body">
+                <p class="update-status-text" id="appUpdateText">Conectado a GitHub Releases (Juan Corporation).</p>
+                <pre class="release-notes" id="appReleaseNotes" hidden></pre>
+                <div class="update-actions">
+                  <button type="button" class="apple-blue-pill" id="installAppUpdateBtn" hidden>Instalar actualización</button>
+                  <a class="apple-secondary-pill" id="openReleasePageLink" href="#" target="_blank" rel="noopener" hidden>Ver en GitHub</a>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div class="download-footer">
-          <div class="footer-left">
-            <div class="folder-pill" id="folderPill" hidden>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
-              </svg>
-              <span id="folderPathText">Descargas</span>
-              <button type="button" class="text-link-btn" id="quickFolderBtn">Cambiar</button>
-            </div>
-
-            <label class="ios-switch-row">
-              <span class="ios-switch">
-                <input type="checkbox" id="embedMetadata" checked>
-                <span class="ios-slider"></span>
-              </span>
-              <span>Incluir metadatos (título y autor)</span>
-            </label>
-          </div>
-
-          <button type="button" class="accent-btn download-cta" id="startDownloadBtn">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3v12" />
-              <path d="m7 10 5 5 5-5" />
-              <path d="M5 20h14" />
-            </svg>
-            <span id="downloadBtnText">Descargar</span>
-          </button>
-        </div>
-      </section>
-
-      <section class="progress-card liquid-glass spring-reveal" id="progressSection" hidden>
-        <div class="progress-top">
-          <div class="progress-heading">
-            <span class="status-pill" id="progressBadge">Descargando</span>
-            <h3 id="progressTitle">Preparando descarga...</h3>
-            <p class="progress-meta" id="progressMeta"></p>
-          </div>
-          <div class="progress-percent" id="progressPercent">0%</div>
-        </div>
-
-        <div class="liquid-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack">
-          <div class="liquid-progress-fill" id="progressFill"></div>
-        </div>
-
-        <div class="progress-bottom">
-          <div class="progress-stats">
-            <span id="progressStage">Iniciando...</span>
-            <span id="progressSpeed"></span>
-            <span id="progressEta"></span>
-            <span id="progressSize"></span>
-          </div>
-
-          <div class="progress-actions">
-            <button type="button" class="danger-pill-btn" id="cancelJobBtn">Cancelar</button>
-            <button type="button" class="glass-pill-btn" id="openSavedFolderBtn" hidden>Mostrar en carpeta</button>
-            <button type="button" class="accent-btn compact-btn" id="openSavedFileBtn" hidden>Abrir archivo</button>
-            <a class="accent-btn compact-btn" id="saveFileBtn" href="#" download hidden>Guardar archivo</a>
-          </div>
-        </div>
-
-        <div class="saved-path-line" id="savedPathLine" hidden></div>
-      </section>
-
-      <section class="history-card liquid-glass" id="historySection" hidden>
-        <div class="history-header">
-          <div>
-            <h3>Descargas recientes</h3>
-            <p class="history-sub" id="historySub">Historial local reciente de !Download.</p>
-          </div>
-          <button type="button" class="glass-pill-btn" id="clearHistoryBtn">Limpiar</button>
-        </div>
-        <div class="history-list" id="historyList"></div>
-      </section>
-    </main>
-
-    <footer class="app-footer">
-      <span id="footerCredit">!Download v1.0.0 · Juan Corporation</span>
-    </footer>
-  </div>
-
-  <div class="modal-backdrop" id="settingsModal" hidden>
-    <div class="modal-sheet liquid-glass" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modal-header">
-        <div class="modal-brand">
-          <img src="/static/icon.png" alt="!Download" width="36" height="36">
-          <div>
-            <h2 id="modalTitle">!Download</h2>
-            <p id="modalVersionSub">v1.0.0 · Juan Corporation</p>
-          </div>
-        </div>
-        <button type="button" class="glass-icon-btn" id="closeSettingsBtn" aria-label="Cerrar ajustes">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
-      </div>
-
-      <div class="modal-body">
-        <div class="modal-section" id="modalFolderSection" hidden>
-          <span class="modal-section-title">Carpeta de descargas</span>
-          <div class="modal-row">
-            <code class="path-code" id="modalFolderPath">-</code>
-            <div class="modal-row-actions">
-              <button type="button" class="glass-pill-btn" id="modalOpenFolderBtn">Abrir</button>
-              <button type="button" class="glass-pill-btn" id="modalChooseFolderBtn">Cambiar</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-head">
-            <span class="modal-section-title">Motores integrados</span>
-            <button type="button" class="glass-pill-btn" id="updateEngineBtn">Actualizar motor</button>
-          </div>
-          <div class="tools-grid" id="modalToolsGrid"></div>
-          <div class="modal-feedback" id="engineFeedback" hidden></div>
-          <button type="button" class="accent-btn compact-btn" id="restartAppBtn" hidden>Reiniciar !Download ahora</button>
-        </div>
-
-        <div class="modal-section">
-          <div class="modal-section-head">
-            <span class="modal-section-title">Actualizaciones de !Download</span>
-            <button type="button" class="glass-pill-btn" id="checkAppUpdateBtn">Buscar actualización</button>
-          </div>
-          <div class="update-box" id="appUpdateBox">
-            <p class="update-status-text" id="appUpdateText">Conectado a GitHub Releases (Juan Corporation).</p>
-            <pre class="release-notes" id="appReleaseNotes" hidden></pre>
-            <div class="update-actions">
-              <button type="button" class="accent-btn compact-btn" id="installAppUpdateBtn" hidden>Instalar actualización</button>
-              <a class="glass-pill-btn" id="openReleasePageLink" href="#" target="_blank" rel="noopener" hidden>Ver en GitHub</a>
-            </div>
-          </div>
-        </div>
-      </div>
+        </section>
+      </main>
     </div>
+
+    <!-- Mobile iOS 27 Floating Liquid Glass 3-Tab Capsule -->
+    <nav class="ios-tab-capsule" id="mobileTabCapsule" aria-label="Navegación rápida">
+      <button type="button" class="capsule-tab is-active" data-view="download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 4v11m-4.5-3.5L12 16l4.5-4.5M5 19h14" />
+        </svg>
+        <span>Descargar</span>
+      </button>
+
+      <button type="button" class="capsule-tab" data-view="activity">
+        <span class="capsule-badge-dot" id="mobileActivityDot" hidden></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" />
+          <path d="M12 7.5v4.8l3 1.8" />
+        </svg>
+        <span>Actividad</span>
+      </button>
+
+      <button type="button" class="capsule-tab" data-view="settings">
+        <span class="capsule-badge-dot is-update" id="mobileUpdateDot" hidden></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.66 0-1.25.4-1.51 1Z" />
+        </svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
   </div>
 
   <script src="/static/app.js" defer></script>

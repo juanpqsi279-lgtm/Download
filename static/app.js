@@ -4,9 +4,17 @@
   const THEME_STORAGE_KEY = "exclaim_download_theme";
   const HISTORY_STORAGE_KEY = "exclaim_download_history_v1";
 
+  const VIEW_TITLES = {
+    download: "Descargar",
+    activity: "Actividad",
+    engines: "Motores",
+    settings: "Ajustes",
+  };
+
   const state = {
     appInfo: null,
     media: null,
+    activeView: "download",
     mode: "video",
     selectedHeight: null,
     selectedContainer: "mp4",
@@ -17,15 +25,33 @@
     pollTimer: null,
     autoDownloadedJobs: new Set(),
     updateInfo: null,
+    lastSyncedTheme: null,
+    pickingFolder: false,
     history: loadLocalHistory(),
   };
 
   const els = {
-    runtimeMiniStatus: document.getElementById("runtimeMiniStatus"),
+    sidebarNav: document.getElementById("sidebarNav"),
+    mobileTabCapsule: document.getElementById("mobileTabCapsule"),
+    viewTitle: document.getElementById("viewTitle"),
+    mobileLargeTitle: document.getElementById("mobileLargeTitle"),
+    navActivityBadge: document.getElementById("navActivityBadge"),
+    mobileActivityDot: document.getElementById("mobileActivityDot"),
+    sidebarEngineDot: document.getElementById("sidebarEngineDot"),
+    sidebarUpdateDot: document.getElementById("sidebarUpdateDot"),
+    mobileUpdateDot: document.getElementById("mobileUpdateDot"),
+    mobileUpdateBtn: document.getElementById("mobileUpdateBtn"),
+    mobileThemeBtn: document.getElementById("mobileThemeBtn"),
+
     updatePill: document.getElementById("updatePill"),
     updatePillText: document.getElementById("updatePillText"),
-    themeToggleBtn: document.getElementById("themeToggleBtn"),
-    openSettingsBtn: document.getElementById("openSettingsBtn"),
+
+    heroComposer: document.getElementById("heroComposer"),
+    quickTiles: document.getElementById("quickTiles"),
+    tilePasteBtn: document.getElementById("tilePasteBtn"),
+    tileActivityBtn: document.getElementById("tileActivityBtn"),
+    tileFolderBtn: document.getElementById("tileFolderBtn"),
+    tileFolderLabel: document.getElementById("tileFolderLabel"),
 
     analyzeForm: document.getElementById("analyzeForm"),
     urlInput: document.getElementById("urlInput"),
@@ -36,6 +62,7 @@
     errorMessage: document.getElementById("errorMessage"),
 
     mediaSection: document.getElementById("mediaSection"),
+    mediaThumbBg: document.getElementById("mediaThumbBg"),
     mediaThumb: document.getElementById("mediaThumb"),
     thumbFallback: document.getElementById("thumbFallback"),
     mediaDuration: document.getElementById("mediaDuration"),
@@ -45,11 +72,17 @@
     mediaSourceAudio: document.getElementById("mediaSourceAudio"),
     mediaSubtitles: document.getElementById("mediaSubtitles"),
     openSourceBtn: document.getElementById("openSourceBtn"),
+    resetMediaBtn: document.getElementById("resetMediaBtn"),
     mediaTitle: document.getElementById("mediaTitle"),
     mediaUploader: document.getElementById("mediaUploader"),
     mediaDate: document.getElementById("mediaDate"),
     mediaViews: document.getElementById("mediaViews"),
     mediaLikes: document.getElementById("mediaLikes"),
+
+    qualityMeter: document.getElementById("qualityMeter"),
+    qualityMeterValue: document.getElementById("qualityMeterValue"),
+    qualityMeterLabel: document.getElementById("qualityMeterLabel"),
+    qualityMeterInfoBtn: document.getElementById("qualityMeterInfoBtn"),
 
     detailsToggleBtn: document.getElementById("detailsToggleBtn"),
     detailsPanel: document.getElementById("detailsPanel"),
@@ -77,6 +110,7 @@
     downloadBtnText: document.getElementById("downloadBtnText"),
 
     progressSection: document.getElementById("progressSection"),
+    progressIconSquircle: document.getElementById("progressIconSquircle"),
     progressBadge: document.getElementById("progressBadge"),
     progressTitle: document.getElementById("progressTitle"),
     progressMeta: document.getElementById("progressMeta"),
@@ -94,14 +128,15 @@
     savedPathLine: document.getElementById("savedPathLine"),
 
     historySection: document.getElementById("historySection"),
+    historyEmptyState: document.getElementById("historyEmptyState"),
     historySub: document.getElementById("historySub"),
     historyList: document.getElementById("historyList"),
     clearHistoryBtn: document.getElementById("clearHistoryBtn"),
     footerCredit: document.getElementById("footerCredit"),
 
-    settingsModal: document.getElementById("settingsModal"),
-    closeSettingsBtn: document.getElementById("closeSettingsBtn"),
     modalVersionSub: document.getElementById("modalVersionSub"),
+    settingsThemeLight: document.getElementById("settingsThemeLight"),
+    settingsThemeDark: document.getElementById("settingsThemeDark"),
     modalFolderSection: document.getElementById("modalFolderSection"),
     modalFolderPath: document.getElementById("modalFolderPath"),
     modalOpenFolderBtn: document.getElementById("modalOpenFolderBtn"),
@@ -129,6 +164,14 @@
     return Boolean(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iosBridge);
   }
 
+  function isMobileNative() {
+    return Boolean(
+      (state.appInfo && (state.appInfo.platform === "android" || state.appInfo.platform === "ios")) ||
+      hasAndroidBridge() ||
+      hasIOSBridge()
+    );
+  }
+
   function isDesktopMode() {
     return Boolean(
       (state.appInfo && state.appInfo.desktop_mode) ||
@@ -138,6 +181,32 @@
     );
   }
 
+  function setActiveView(viewName) {
+    const view = VIEW_TITLES[viewName] ? viewName : "download";
+    state.activeView = view;
+    document.body.setAttribute("data-active-view", view);
+
+    if (els.viewTitle) {
+      els.viewTitle.textContent = VIEW_TITLES[view];
+    }
+    if (els.mobileLargeTitle) {
+      els.mobileLargeTitle.textContent = view === "download" ? "!Download" : VIEW_TITLES[view];
+    }
+
+    document.querySelectorAll("[data-view-panel]").forEach((panel) => {
+      panel.hidden = panel.getAttribute("data-view-panel") !== view;
+    });
+
+    document.querySelectorAll("[data-view]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.getAttribute("data-view") === view);
+    });
+
+    if ((view === "engines" || view === "settings") && !state.appInfo) {
+      loadAppInfo();
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function getCurrentTheme() {
     return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
   }
@@ -145,12 +214,25 @@
   function applyTheme(theme, persistRemote) {
     const normalized = theme === "light" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", normalized);
+
+    if (els.settingsThemeLight) {
+      els.settingsThemeLight.classList.toggle("is-active", normalized === "light");
+    }
+    if (els.settingsThemeDark) {
+      els.settingsThemeDark.classList.toggle("is-active", normalized === "dark");
+    }
+
     try {
       localStorage.setItem(THEME_STORAGE_KEY, normalized);
     } catch {
       // Ignore storage error
     }
-    if (hasDesktopBridge() && typeof window.pywebview.api.set_window_theme === "function") {
+    if (
+      hasDesktopBridge() &&
+      typeof window.pywebview.api.set_window_theme === "function" &&
+      state.lastSyncedTheme !== normalized
+    ) {
+      state.lastSyncedTheme = normalized;
       window.pywebview.api.set_window_theme(normalized).catch(() => {});
     }
     if (hasAndroidBridge() && typeof window.AndroidBridge.setSystemBarTheme === "function") {
@@ -237,10 +319,22 @@
   function setAnalyzing(loading) {
     els.analyzeBtn.disabled = loading;
     els.analyzeBtn.classList.toggle("is-loading", loading);
-    const label = els.analyzeBtn.querySelector(".btn-label");
-    if (label) {
-      label.textContent = loading ? "Analizando..." : "Analizar";
-    }
+  }
+
+  function createCheckSvg() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2.5");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("class", "inset-check");
+    svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "m5 12.5 4.8 4.8L19 7");
+    svg.appendChild(path);
+    return svg;
   }
 
   async function loadAppInfo() {
@@ -250,7 +344,7 @@
       const info = await resp.json();
       state.appInfo = info;
 
-      const version = info.version || "1.0.0";
+      const version = info.version || "1.4.0";
       const developer = info.developer || "Juan Corporation";
       els.footerCredit.textContent = `${info.name || "!Download"} v${version} · ${developer}`;
       els.modalVersionSub.textContent = `v${version} · ${developer}`;
@@ -259,7 +353,7 @@
       renderTools(info.tools || {});
 
       if (info.desktop_mode) {
-        els.historySub.textContent = "Historial reciente guardado directamente en tu carpeta.";
+        els.historySub.textContent = "Guardadas directamente en tu carpeta de descargas.";
       } else {
         els.historySub.textContent = "Los archivos temporales permanecen disponibles 30 minutos.";
       }
@@ -277,15 +371,16 @@
   function updateFolderDisplays(dirPath) {
     const clean = dirPath || "";
     const desktop = isDesktopMode();
-    const isMobileNative = Boolean(
-      (state.appInfo && (state.appInfo.platform === "android" || state.appInfo.platform === "ios")) ||
-      hasAndroidBridge() ||
-      hasIOSBridge()
-    );
+    const mobileNative = isMobileNative();
     els.folderPill.hidden = !desktop || !clean;
     els.modalFolderSection.hidden = !desktop || !clean;
-    els.quickFolderBtn.hidden = isMobileNative;
-    els.modalChooseFolderBtn.hidden = isMobileNative;
+    els.quickFolderBtn.hidden = mobileNative;
+    els.modalChooseFolderBtn.hidden = mobileNative;
+
+    if (els.tileFolderLabel) {
+      els.tileFolderLabel.textContent = desktop && !mobileNative ? "Carpeta destino" : "Motores y ajustes";
+    }
+
     if (clean) {
       const parts = clean.split(/[\\/]/).filter(Boolean);
       const shortName = parts.length > 0 ? parts[parts.length - 1] : clean;
@@ -317,51 +412,58 @@
   }
 
   function renderTools(tools) {
-    els.runtimeMiniStatus.querySelectorAll(".engine-dot").forEach((dot) => {
-      const key = dot.dataset.tool;
+    const anyMissing = ["yt_dlp", "ffmpeg", "deno"].some((key) => {
       const item = tools[key];
-      dot.classList.remove("is-ready", "is-missing");
-      if (item && item.available) {
-        dot.classList.add("is-ready");
-        dot.title = item.version ? `${key}: ${formatToolVersion(key, item.version)}` : `${key}: listo`;
-      } else {
-        dot.classList.add("is-missing");
-        dot.title = `${key}: no detectado`;
-      }
+      return !(item && item.available);
     });
 
-    const labels = [
-      ["yt_dlp", "yt-dlp"],
-      ["ffmpeg", "FFmpeg"],
-      ["ffprobe", "FFprobe"],
-      ["deno", "Deno"],
+    if (els.sidebarEngineDot) {
+      els.sidebarEngineDot.classList.toggle("is-missing", anyMissing);
+    }
+
+    const specs = [
+      ["yt_dlp", "yt-dlp", "sf-blue", "DL"],
+      ["ffmpeg", "FFmpeg", "sf-green", "AV"],
+      ["ffprobe", "FFprobe", "sf-teal", "IN"],
+      ["deno", "Deno", "sf-orange", "JS"],
     ];
+
     els.modalToolsGrid.innerHTML = "";
-    labels.forEach(([key, label]) => {
+    specs.forEach(([key, label, colorClass, codeText]) => {
       const item = tools[key] || {};
-      const box = document.createElement("div");
-      box.className = "tool-box";
+      const row = document.createElement("div");
+      row.className = "inset-row";
 
-      const top = document.createElement("div");
-      top.className = "tool-box-top";
+      const badge = document.createElement("span");
+      badge.className = `sf-squircle sf-sm ${colorClass}`;
+      badge.textContent = codeText;
+      badge.style.fontSize = "0.66rem";
+      badge.style.fontWeight = "700";
+
+      const main = document.createElement("div");
+      main.className = "inset-row-main";
+
       const title = document.createElement("span");
+      title.className = "inset-row-title";
       title.textContent = label;
-      const dot = document.createElement("span");
-      dot.className = `engine-dot ${item.available ? "is-ready" : "is-missing"}`;
-      top.append(title, dot);
 
-      const ver = document.createElement("div");
-      ver.className = "tool-box-ver";
+      const sub = document.createElement("span");
+      sub.className = "inset-row-sub";
       if (item.available) {
-        const suffix = item.using_override ? " (Actualizado)" : "";
-        ver.textContent = `${formatToolVersion(key, item.version)}${suffix}`;
-        ver.title = item.version || "";
+        const suffix = item.using_override ? " · Actualizado" : "";
+        sub.textContent = `${formatToolVersion(key, item.version)}${suffix}`;
+        sub.title = item.version || "";
       } else {
-        ver.textContent = "No detectado";
+        sub.textContent = "No detectado en este sistema";
       }
+      main.append(title, sub);
 
-      box.append(top, ver);
-      els.modalToolsGrid.appendChild(box);
+      const status = document.createElement("span");
+      status.className = `engine-row-status ${item.available ? "" : "is-missing"}`;
+      status.textContent = item.available ? "✓ Listo" : "Falta";
+
+      row.append(badge, main, status);
+      els.modalToolsGrid.appendChild(row);
     });
   }
 
@@ -369,8 +471,7 @@
     try {
       const resp = await fetch("/api/updates/check");
       if (!resp.ok) return;
-      const data = await resp.json();
-      renderUpdateStatus(data);
+      renderUpdateStatus(await resp.json());
     } catch {
       // Silent background check
     }
@@ -378,12 +479,17 @@
 
   function renderUpdateStatus(data) {
     state.updateInfo = data;
-    if (data && data.update_available && data.latest_version) {
+    const available = Boolean(data && data.update_available && data.latest_version);
+
+    if (available) {
       els.updatePillText.textContent = `v${data.latest_version} disponible`;
       els.updatePill.hidden = false;
     } else {
       els.updatePill.hidden = true;
     }
+    if (els.sidebarUpdateDot) els.sidebarUpdateDot.hidden = !available;
+    if (els.mobileUpdateDot) els.mobileUpdateDot.hidden = !available;
+    if (els.mobileUpdateBtn) els.mobileUpdateBtn.hidden = !available;
 
     if (!data) return;
     els.appUpdateText.textContent = data.message || "Sin información.";
@@ -407,17 +513,21 @@
           ? state.appInfo.can_self_update
           : Boolean(state.appInfo.frozen))
       : false;
-    const canSelfUpdate = Boolean(
-      data.update_available &&
-      data.asset_url &&
-      data.asset_name &&
-      selfUpdateSupported
-    );
+    const canSelfUpdate = Boolean(available && data.asset_url && data.asset_name && selfUpdateSupported);
     els.installAppUpdateBtn.hidden = !canSelfUpdate;
   }
 
   function updateClearButton() {
     els.clearBtn.hidden = !els.urlInput.value.trim();
+  }
+
+  function resetMediaView() {
+    state.media = null;
+    els.mediaSection.hidden = true;
+    els.heroComposer.hidden = false;
+    els.quickTiles.hidden = false;
+    clearError();
+    els.urlInput.focus();
   }
 
   async function analyzeUrl(urlValue) {
@@ -472,8 +582,63 @@
     state.selectedAudioBitrate = 192;
   }
 
+  function renderQualityMeter() {
+    if (!state.media || !els.qualityMeter) return;
+    let level = 3;
+    let headline = "";
+    let subline = "";
+
+    if (state.mode === "video") {
+      const options = state.media.video_options || [];
+      const selected = options.find((opt) => opt.height === state.selectedHeight) || options[0];
+      if (selected) {
+        const h = Number(selected.height || 0);
+        if (h >= 2160) level = 5;
+        else if (h >= 1440) level = 4;
+        else if (h >= 1080) level = 4;
+        else if (h >= 720) level = 3;
+        else if (h >= 480) level = 2;
+        else level = 1;
+
+        headline = `${selected.label}${selected.quality_tag ? ` (${selected.quality_tag})` : ""}`;
+        const size = formatBytes(selected.filesize_approx);
+        const bits = [state.selectedContainer.toUpperCase()];
+        if (selected.vcodec) bits.push(selected.vcodec);
+        if (size) bits.push(`~${size}`);
+        subline = bits.join(" · ");
+      } else {
+        level = 1;
+        headline = "Solo Audio";
+        subline = "Este enlace no incluye video";
+      }
+    } else {
+      const formats = state.media.audio_formats || [];
+      const fmtObj = formats.find((f) => f.format === state.selectedAudioFormat);
+      const isLossless = Boolean(fmtObj && fmtObj.lossless);
+      if (isLossless || state.selectedAudioBitrate >= 320) level = 5;
+      else if (state.selectedAudioBitrate >= 256) level = 4;
+      else if (state.selectedAudioBitrate >= 192) level = 3;
+      else level = 2;
+
+      headline = `${state.selectedAudioFormat.toUpperCase()} · ${isLossless ? "Sin pérdida" : `${state.selectedAudioBitrate} kbps`}`;
+      const brObj = (state.media.audio_bitrates || []).find((b) => b.bitrate === state.selectedAudioBitrate);
+      const size = formatBytes(brObj && brObj.estimated_bytes);
+      subline = isLossless ? "Calidad maestra sin compresión" : (size ? `Tamaño estimado ~${size}` : "Audio comprimido");
+    }
+
+    els.qualityMeterValue.textContent = headline;
+    els.qualityMeterLabel.textContent = subline;
+    const bars = els.qualityMeter.querySelectorAll("span");
+    bars.forEach((bar, index) => {
+      bar.classList.toggle("is-active", index < level);
+    });
+  }
+
   function renderMediaSection(media) {
+    els.heroComposer.hidden = true;
+    els.quickTiles.hidden = true;
     els.mediaSection.hidden = false;
+
     els.mediaTitle.textContent = media.title || "Archivo multimedia";
     els.mediaPlatform.textContent = media.platform || "Web";
 
@@ -545,20 +710,27 @@
     }
 
     if (media.thumbnail) {
+      const proxied = `/api/thumbnail?url=${encodeURIComponent(media.thumbnail)}`;
       els.mediaThumb.hidden = true;
+      els.mediaThumbBg.hidden = true;
       els.thumbFallback.hidden = false;
       els.mediaThumb.onload = () => {
         els.mediaThumb.hidden = false;
         els.thumbFallback.hidden = true;
+        els.mediaThumbBg.src = proxied;
+        els.mediaThumbBg.hidden = false;
       };
       els.mediaThumb.onerror = () => {
         els.mediaThumb.hidden = true;
+        els.mediaThumbBg.hidden = true;
         els.thumbFallback.hidden = false;
       };
-      els.mediaThumb.src = `/api/thumbnail?url=${encodeURIComponent(media.thumbnail)}`;
+      els.mediaThumb.src = proxied;
     } else {
       els.mediaThumb.removeAttribute("src");
+      els.mediaThumbBg.removeAttribute("src");
       els.mediaThumb.hidden = true;
+      els.mediaThumbBg.hidden = true;
       els.thumbFallback.hidden = false;
     }
 
@@ -573,36 +745,37 @@
     renderVideoOptions();
     renderAudioOptions();
     renderDetailedSpecs();
+    renderQualityMeter();
     updateDownloadCta();
   }
 
   function renderDetailedSpecs() {
     if (!state.media) return;
     const media = state.media;
-    const cells = [];
+    const rows = [];
 
     if (state.mode === "video") {
       const selected = (media.video_options || []).find((o) => o.height === state.selectedHeight) || (media.video_options || [])[0];
       if (selected) {
         const res = selected.width && selected.height ? `${selected.width} × ${selected.height} px` : selected.label;
-        cells.push(["Resolución elegida", res]);
-        if (selected.fps) cells.push(["Fotogramas", `${selected.fps} fps`]);
-        if (selected.vcodec) cells.push(["Códec de video", selected.vcodec]);
-        cells.push(["Rango dinámico", selected.dynamic_range || "SDR"]);
-        if (selected.tbr) cells.push(["Bitrate de video", `~${selected.tbr} kbps`]);
+        rows.push(["Resolución elegida", res]);
+        if (selected.fps) rows.push(["Fotogramas", `${selected.fps} fps`]);
+        if (selected.vcodec) rows.push(["Códec de video", selected.vcodec]);
+        rows.push(["Rango dinámico", selected.dynamic_range || "SDR"]);
+        if (selected.tbr) rows.push(["Bitrate de video", `~${selected.tbr} kbps`]);
         const est = formatBytes(selected.filesize_approx);
-        if (est) cells.push(["Tamaño estimado", `~${est}`]);
+        if (est) rows.push(["Tamaño estimado", `~${est}`]);
       }
-      cells.push(["Contenedor", state.selectedContainer.toUpperCase()]);
+      rows.push(["Contenedor", state.selectedContainer.toUpperCase()]);
     } else {
       const fmtObj = (media.audio_formats || []).find((f) => f.format === state.selectedAudioFormat);
       const isLossless = Boolean(fmtObj && fmtObj.lossless);
-      cells.push(["Formato de salida", state.selectedAudioFormat.toUpperCase()]);
-      cells.push(["Calidad elegida", isLossless ? "Sin pérdida (Lossless)" : `${state.selectedAudioBitrate} kbps`]);
+      rows.push(["Formato de salida", state.selectedAudioFormat.toUpperCase()]);
+      rows.push(["Calidad elegida", isLossless ? "Sin pérdida (Lossless)" : `${state.selectedAudioBitrate} kbps`]);
       if (!isLossless) {
         const brObj = (media.audio_bitrates || []).find((b) => b.bitrate === state.selectedAudioBitrate);
         const est = formatBytes(brObj && brObj.estimated_bytes);
-        if (est) cells.push(["Tamaño estimado", `~${est}`]);
+        if (est) rows.push(["Tamaño estimado", `~${est}`]);
       }
     }
 
@@ -610,27 +783,27 @@
       const parts = [];
       if (media.source_audio_codec) parts.push(media.source_audio_codec);
       if (media.source_audio_abr) parts.push(`${media.source_audio_abr} kbps`);
-      cells.push(["Audio origen", parts.join(" · ")]);
+      rows.push(["Audio origen", parts.join(" · ")]);
     }
     if (media.duration_text) {
-      cells.push(["Duración", media.duration_text]);
+      rows.push(["Duración", media.duration_text]);
     }
     if ((media.subtitle_languages || []).length > 0) {
-      cells.push(["Subtítulos", media.subtitle_languages.slice(0, 8).join(", ")]);
+      rows.push(["Subtítulos", media.subtitle_languages.slice(0, 8).join(", ")]);
     }
 
     els.specsGrid.innerHTML = "";
-    cells.forEach(([label, value]) => {
-      const cell = document.createElement("div");
-      cell.className = "spec-cell";
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "inset-row";
       const lbl = document.createElement("span");
       lbl.className = "spec-label";
       lbl.textContent = label;
       const val = document.createElement("span");
       val.className = "spec-value";
       val.textContent = value;
-      cell.append(lbl, val);
-      els.specsGrid.appendChild(cell);
+      row.append(lbl, val);
+      els.specsGrid.appendChild(row);
     });
   }
 
@@ -652,48 +825,53 @@
 
     if (options.length === 0) {
       els.noVideoNote.hidden = false;
+      els.videoQualityGrid.hidden = true;
     } else {
       els.noVideoNote.hidden = true;
+      els.videoQualityGrid.hidden = false;
       options.forEach((opt) => {
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "choice-card";
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "inset-row";
         if (opt.height === state.selectedHeight) {
-          card.classList.add("is-selected");
+          row.classList.add("is-selected");
         }
 
-        const top = document.createElement("div");
-        top.className = "choice-top";
+        const main = document.createElement("div");
+        main.className = "inset-row-main";
 
-        const title = document.createElement("span");
-        title.className = "choice-title";
-        title.textContent = opt.label;
+        const titleRow = document.createElement("span");
+        titleRow.className = "inset-row-title";
+        titleRow.textContent = opt.label;
 
-        const tag = document.createElement("span");
-        tag.className = "choice-tag";
         const tagParts = [opt.quality_tag];
         if (opt.fps && opt.fps >= 50) tagParts.push(`${opt.fps}fps`);
         if (opt.dynamic_range) tagParts.push(opt.dynamic_range);
-        tag.textContent = tagParts.join(" · ");
-
-        top.append(title, tag);
+        if (tagParts.filter(Boolean).length > 0) {
+          const tag = document.createElement("span");
+          tag.className = "inset-tag";
+          tag.textContent = tagParts.filter(Boolean).join(" · ");
+          titleRow.appendChild(tag);
+        }
 
         const sub = document.createElement("span");
-        sub.className = "choice-sub";
+        sub.className = "inset-row-sub";
         const parts = [];
         if (opt.vcodec) parts.push(opt.vcodec);
         const sizeLabel = formatBytes(opt.filesize_approx);
         parts.push(sizeLabel ? `~${sizeLabel}` : "Tamaño variable");
         sub.textContent = parts.join(" · ");
 
-        card.append(top, sub);
-        card.addEventListener("click", () => {
+        main.append(titleRow, sub);
+        row.append(main, createCheckSvg());
+        row.addEventListener("click", () => {
           state.selectedHeight = opt.height;
           renderVideoOptions();
           renderDetailedSpecs();
+          renderQualityMeter();
           updateDownloadCta();
         });
-        els.videoQualityGrid.appendChild(card);
+        els.videoQualityGrid.appendChild(row);
       });
     }
 
@@ -717,6 +895,7 @@
         state.selectedContainer = item.value;
         renderVideoOptions();
         renderDetailedSpecs();
+        renderQualityMeter();
         updateDownloadCta();
       });
       els.containerPills.appendChild(btn);
@@ -732,40 +911,41 @@
 
     els.audioFormatGrid.innerHTML = "";
     formats.forEach((fmt) => {
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "choice-card";
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "inset-row";
       if (fmt.format === state.selectedAudioFormat) {
-        card.classList.add("is-selected");
+        row.classList.add("is-selected");
       }
 
-      const top = document.createElement("div");
-      top.className = "choice-top";
+      const main = document.createElement("div");
+      main.className = "inset-row-main";
 
-      const title = document.createElement("span");
-      title.className = "choice-title";
-      title.textContent = fmt.label;
-      top.append(title);
+      const titleRow = document.createElement("span");
+      titleRow.className = "inset-row-title";
+      titleRow.textContent = fmt.label;
 
       if (fmt.lossless) {
         const tag = document.createElement("span");
-        tag.className = "choice-tag";
+        tag.className = "inset-tag";
         tag.textContent = "Sin pérdida";
-        top.append(tag);
+        titleRow.appendChild(tag);
       }
 
       const sub = document.createElement("span");
-      sub.className = "choice-sub";
+      sub.className = "inset-row-sub";
       sub.textContent = fmt.description;
 
-      card.append(top, sub);
-      card.addEventListener("click", () => {
+      main.append(titleRow, sub);
+      row.append(main, createCheckSvg());
+      row.addEventListener("click", () => {
         state.selectedAudioFormat = fmt.format;
         renderAudioOptions();
         renderDetailedSpecs();
+        renderQualityMeter();
         updateDownloadCta();
       });
-      els.audioFormatGrid.appendChild(card);
+      els.audioFormatGrid.appendChild(row);
     });
 
     els.audioBitrateGrid.innerHTML = "";
@@ -774,46 +954,42 @@
 
     if (!isLossless) {
       bitrates.forEach((br) => {
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = "choice-card";
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "inset-row";
         if (br.bitrate === state.selectedAudioBitrate) {
-          card.classList.add("is-selected");
+          row.classList.add("is-selected");
         }
 
-        const top = document.createElement("div");
-        top.className = "choice-top";
+        const main = document.createElement("div");
+        main.className = "inset-row-main";
 
-        const title = document.createElement("span");
-        title.className = "choice-title";
-        title.textContent = br.label;
-        top.append(title);
+        const titleRow = document.createElement("span");
+        titleRow.className = "inset-row-title";
+        titleRow.textContent = br.label;
 
-        if (br.bitrate === 320) {
+        if (br.bitrate === 320 || br.bitrate === 192) {
           const tag = document.createElement("span");
-          tag.className = "choice-tag";
-          tag.textContent = "Máxima";
-          top.append(tag);
-        } else if (br.bitrate === 192) {
-          const tag = document.createElement("span");
-          tag.className = "choice-tag";
-          tag.textContent = "Equilibrada";
-          top.append(tag);
+          tag.className = "inset-tag";
+          tag.textContent = br.bitrate === 320 ? "Máxima" : "Equilibrada";
+          titleRow.appendChild(tag);
         }
 
         const sub = document.createElement("span");
-        sub.className = "choice-sub";
+        sub.className = "inset-row-sub";
         const sizeLabel = formatBytes(br.estimated_bytes);
         sub.textContent = sizeLabel ? `~${sizeLabel}` : "Bitrate constante";
 
-        card.append(top, sub);
-        card.addEventListener("click", () => {
+        main.append(titleRow, sub);
+        row.append(main, createCheckSvg());
+        row.addEventListener("click", () => {
           state.selectedAudioBitrate = br.bitrate;
           renderAudioOptions();
           renderDetailedSpecs();
+          renderQualityMeter();
           updateDownloadCta();
         });
-        els.audioBitrateGrid.appendChild(card);
+        els.audioBitrateGrid.appendChild(row);
       });
     }
   }
@@ -978,27 +1154,28 @@
 
     els.progressBadge.className = "status-pill";
     els.progressFill.className = "liquid-progress-fill";
+    els.progressIconSquircle.className = "live-squircle";
 
     if (job.status === "completed") {
       els.progressBadge.textContent = "Completado";
       els.progressBadge.classList.add("is-completed");
       els.progressFill.classList.add("is-completed");
+      els.progressIconSquircle.classList.add("is-completed");
     } else if (job.status === "error") {
       els.progressBadge.textContent = "Error";
       els.progressBadge.classList.add("is-error");
       els.progressFill.classList.add("is-error");
+      els.progressIconSquircle.classList.add("is-error");
     } else if (job.status === "cancelled") {
       els.progressBadge.textContent = "Cancelado";
       els.progressBadge.classList.add("is-error");
+      els.progressIconSquircle.classList.add("is-error");
     } else if (job.status === "processing") {
       els.progressBadge.textContent = "Procesando";
-      els.progressFill.classList.add("is-active");
     } else if (job.status === "queued") {
       els.progressBadge.textContent = "En cola";
-      els.progressFill.classList.add("is-active");
     } else {
       els.progressBadge.textContent = "Descargando";
-      els.progressFill.classList.add("is-active");
     }
 
     els.progressStage.textContent = job.stage || "";
@@ -1105,55 +1282,112 @@
     renderHistory();
   }
 
+  function createHistorySquircle(item) {
+    const label = String(item.quality_label || "").toLowerCase();
+    const isAudio = label.includes("audio") || label.includes("mp3") || label.includes("m4a") || label.includes("flac") || label.includes("opus") || label.includes("wav");
+    const box = document.createElement("span");
+    box.className = `sf-squircle sf-lg ${isAudio ? "sf-purple" : "sf-blue"}`;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    if (isAudio) {
+      const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", "M9 18V5l12-2v13");
+      const c1 = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c1.setAttribute("cx", "6"); c1.setAttribute("cy", "18"); c1.setAttribute("r", "3");
+      const c2 = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c2.setAttribute("cx", "18"); c2.setAttribute("cy", "16"); c2.setAttribute("r", "3");
+      svg.append(p, c1, c2);
+    } else {
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("x", "3"); rect.setAttribute("y", "5"); rect.setAttribute("width", "18"); rect.setAttribute("height", "14"); rect.setAttribute("rx", "3");
+      const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+      poly.setAttribute("points", "10 9 16 12 10 15 10 9");
+      svg.append(rect, poly);
+    }
+    box.appendChild(svg);
+    return box;
+  }
+
   function renderHistory() {
-    if (state.history.length === 0) {
+    const count = state.history.length;
+    if (els.navActivityBadge) {
+      els.navActivityBadge.textContent = String(count);
+      els.navActivityBadge.hidden = count === 0;
+    }
+    if (els.mobileActivityDot) {
+      els.mobileActivityDot.hidden = count === 0;
+    }
+
+    if (count === 0) {
       els.historySection.hidden = true;
+      els.historyEmptyState.hidden = false;
       els.historyList.innerHTML = "";
       return;
     }
 
     els.historySection.hidden = false;
+    els.historyEmptyState.hidden = true;
     els.historyList.innerHTML = "";
 
     state.history.forEach((item) => {
       const row = document.createElement("div");
-      row.className = "history-item";
+      row.className = "inset-row history-row";
 
-      const info = document.createElement("div");
-      info.className = "history-info";
+      const squircle = createHistorySquircle(item);
+
+      const main = document.createElement("div");
+      main.className = "inset-row-main";
 
       const title = document.createElement("div");
-      title.className = "history-title";
+      title.className = "history-title-text";
       title.textContent = item.title;
 
       const sub = document.createElement("div");
-      sub.className = "history-subline";
+      sub.className = `history-status-line ${item.status === "completed" ? "is-ok" : ""}`;
+      if (item.status === "completed") {
+        const ck = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        ck.setAttribute("viewBox", "0 0 24 24");
+        ck.setAttribute("fill", "none");
+        ck.setAttribute("stroke", "currentColor");
+        ck.setAttribute("stroke-width", "2.6");
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", "m5 12.5 4.8 4.8L19 7");
+        ck.appendChild(path);
+        sub.appendChild(ck);
+      }
       const parts = [item.quality_label];
       const sizeText = formatBytes(item.filesize);
       if (sizeText) parts.push(sizeText);
       if (item.status === "error") parts.push("Error");
       else if (item.status === "cancelled") parts.push("Cancelado");
-      sub.textContent = parts.filter(Boolean).join(" · ");
+      const textNode = document.createElement("span");
+      textNode.textContent = parts.filter(Boolean).join(" · ");
+      sub.appendChild(textNode);
 
-      info.append(title, sub);
+      main.append(title, sub);
 
       const actions = document.createElement("div");
-      actions.className = "history-actions";
+      actions.className = "history-row-actions";
 
       if (item.status === "completed") {
         if (item.saved_path && isDesktopMode()) {
           const folderBtn = document.createElement("button");
           folderBtn.type = "button";
-          folderBtn.className = "glass-pill-btn";
+          folderBtn.className = "apple-secondary-pill";
           folderBtn.textContent = "Carpeta";
           folderBtn.addEventListener("click", () => openSystemPath("/api/system/open-folder", item.saved_path));
           actions.appendChild(folderBtn);
         } else {
           const dlLink = document.createElement("a");
-          dlLink.className = "glass-pill-btn";
+          dlLink.className = "apple-secondary-pill";
           dlLink.href = `/api/downloads/${encodeURIComponent(item.job_id)}/file`;
           dlLink.download = "";
-          dlLink.textContent = "Descargar";
+          dlLink.textContent = "Guardar";
           actions.appendChild(dlLink);
         }
       }
@@ -1161,18 +1395,20 @@
       if (item.url) {
         const reBtn = document.createElement("button");
         reBtn.type = "button";
-        reBtn.className = "glass-pill-btn";
-        reBtn.textContent = "Re-analizar";
+        reBtn.className = "circle-action-outline";
+        reBtn.title = "Re-analizar enlace";
+        reBtn.setAttribute("aria-label", "Re-analizar enlace");
+        reBtn.textContent = "↻";
         reBtn.addEventListener("click", () => {
+          setActiveView("download");
           els.urlInput.value = item.url;
           updateClearButton();
           analyzeUrl(item.url);
-          window.scrollTo({ top: 0, behavior: "smooth" });
         });
         actions.appendChild(reBtn);
       }
 
-      row.append(info, actions);
+      row.append(squircle, main, actions);
       els.historyList.appendChild(row);
     });
   }
@@ -1191,9 +1427,14 @@
   }
 
   async function pickDownloadFolder() {
-    if (!hasDesktopBridge() || typeof window.pywebview.api.select_download_folder !== "function") {
+    if (
+      state.pickingFolder ||
+      !hasDesktopBridge() ||
+      typeof window.pywebview.api.select_download_folder !== "function"
+    ) {
       return;
     }
+    state.pickingFolder = true;
     try {
       const chosen = await window.pywebview.api.select_download_folder();
       if (!chosen) return;
@@ -1208,55 +1449,18 @@
       }
     } catch {
       // Ignore cancel
+    } finally {
+      state.pickingFolder = false;
     }
   }
 
-  function openSettingsModal() {
-    els.settingsModal.hidden = false;
-    loadAppInfo();
-  }
-
-  function closeSettingsModal() {
-    els.settingsModal.hidden = true;
-  }
-
-  // Event listeners
-  els.themeToggleBtn.addEventListener("click", () => {
-    const next = getCurrentTheme() === "dark" ? "light" : "dark";
-    applyTheme(next, true);
-  });
-
-  els.openSettingsBtn.addEventListener("click", openSettingsModal);
-  els.updatePill.addEventListener("click", openSettingsModal);
-  els.closeSettingsBtn.addEventListener("click", closeSettingsModal);
-  els.settingsModal.addEventListener("click", (e) => {
-    if (e.target === els.settingsModal) closeSettingsModal();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !els.settingsModal.hidden) {
-      closeSettingsModal();
-    }
-  });
-
-  els.analyzeForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    analyzeUrl();
-  });
-
-  els.urlInput.addEventListener("input", updateClearButton);
-
-  els.clearBtn.addEventListener("click", () => {
-    els.urlInput.value = "";
-    updateClearButton();
-    clearError();
-    els.urlInput.focus();
-  });
-
-  els.pasteBtn.addEventListener("click", async () => {
+  async function pasteFromClipboardAndAnalyze() {
     clearError();
     try {
       let text = "";
-      if (hasAndroidBridge() && typeof window.AndroidBridge.readClipboardText === "function") {
+      if (hasDesktopBridge() && typeof window.pywebview.api.read_clipboard_text === "function") {
+        text = String((await window.pywebview.api.read_clipboard_text()) || "").trim();
+      } else if (hasAndroidBridge() && typeof window.AndroidBridge.readClipboardText === "function") {
         text = String(window.AndroidBridge.readClipboardText() || "").trim();
       } else if (navigator.clipboard && navigator.clipboard.readText) {
         text = (await navigator.clipboard.readText()).trim();
@@ -1276,13 +1480,83 @@
       showError("No se pudo leer el portapapeles automáticamente. Pega el enlace en el campo.");
       els.urlInput.focus();
     }
+  }
+
+  // Navigation listeners
+  document.querySelectorAll("[data-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-view");
+      if (target) setActiveView(target);
+    });
   });
+
+  els.updatePill.addEventListener("click", () => setActiveView("settings"));
+  if (els.mobileUpdateBtn) {
+    els.mobileUpdateBtn.addEventListener("click", () => setActiveView("settings"));
+  }
+
+  // Theme listeners
+  if (els.mobileThemeBtn) {
+    els.mobileThemeBtn.addEventListener("click", () => {
+      applyTheme(getCurrentTheme() === "dark" ? "light" : "dark", true);
+    });
+  }
+  if (els.settingsThemeLight) {
+    els.settingsThemeLight.addEventListener("click", () => applyTheme("light", true));
+  }
+  if (els.settingsThemeDark) {
+    els.settingsThemeDark.addEventListener("click", () => applyTheme("dark", true));
+  }
+
+  // Form & tiles
+  els.analyzeForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    analyzeUrl();
+  });
+
+  els.urlInput.addEventListener("input", updateClearButton);
+
+  els.clearBtn.addEventListener("click", () => {
+    els.urlInput.value = "";
+    updateClearButton();
+    clearError();
+    els.urlInput.focus();
+  });
+
+  els.pasteBtn.addEventListener("click", pasteFromClipboardAndAnalyze);
+  if (els.tilePasteBtn) {
+    els.tilePasteBtn.addEventListener("click", pasteFromClipboardAndAnalyze);
+  }
+  if (els.tileActivityBtn) {
+    els.tileActivityBtn.addEventListener("click", () => setActiveView("activity"));
+  }
+  if (els.tileFolderBtn) {
+    els.tileFolderBtn.addEventListener("click", () => {
+      if (isDesktopMode() && !isMobileNative() && hasDesktopBridge()) {
+        pickDownloadFolder();
+      } else {
+        setActiveView("settings");
+      }
+    });
+  }
+
+  if (els.resetMediaBtn) {
+    els.resetMediaBtn.addEventListener("click", resetMediaView);
+  }
 
   els.detailsToggleBtn.addEventListener("click", () => {
     const expanded = els.detailsToggleBtn.getAttribute("aria-expanded") === "true";
     els.detailsToggleBtn.setAttribute("aria-expanded", String(!expanded));
     els.detailsPanel.classList.toggle("is-open", !expanded);
   });
+
+  if (els.qualityMeterInfoBtn) {
+    els.qualityMeterInfoBtn.addEventListener("click", () => {
+      els.detailsToggleBtn.setAttribute("aria-expanded", "true");
+      els.detailsPanel.classList.add("is-open");
+      els.detailsToggleBtn.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
 
   els.openSourceBtn.addEventListener("click", () => {
     if (!state.media) return;
@@ -1303,6 +1577,7 @@
     state.mode = "video";
     renderModeTabs();
     renderDetailedSpecs();
+    renderQualityMeter();
     updateDownloadCta();
   });
 
@@ -1310,6 +1585,7 @@
     state.mode = "audio";
     renderModeTabs();
     renderDetailedSpecs();
+    renderQualityMeter();
     updateDownloadCta();
   });
 
@@ -1360,13 +1636,12 @@
     els.checkAppUpdateBtn.textContent = "Buscando...";
     try {
       const resp = await fetch("/api/updates/check");
-      const data = await resp.json();
-      renderUpdateStatus(data);
+      renderUpdateStatus(await resp.json());
     } catch {
       els.appUpdateText.textContent = "No se pudo consultar GitHub Releases.";
     } finally {
       els.checkAppUpdateBtn.disabled = false;
-      els.checkAppUpdateBtn.textContent = "Buscar actualización";
+      els.checkAppUpdateBtn.textContent = "Buscar";
     }
   });
 
@@ -1400,6 +1675,7 @@
   window.__receiveSharedUrl = function (sharedUrl) {
     const cleaned = String(sharedUrl || "").trim();
     if (!cleaned) return;
+    setActiveView("download");
     els.urlInput.value = cleaned;
     updateClearButton();
     clearError();
@@ -1408,6 +1684,8 @@
   };
 
   // Init
+  setActiveView("download");
+  applyTheme(getCurrentTheme(), false);
   updateClearButton();
   renderHistory();
   loadAppInfo().then(() => {
