@@ -422,6 +422,7 @@ def test_desktop_gui_backend_and_restart_command(monkeypatch) -> None:
     public_attrs = [name for name in dir(bridge) if not name.startswith("_")]
     assert "window" not in public_attrs
     assert "server" not in public_attrs
+    assert "select_media_files" in public_attrs
     assert all(callable(getattr(bridge, name)) for name in public_attrs)
 
 
@@ -479,5 +480,118 @@ def test_playlist_detection_parsing_and_download_options(tmp_path: Path) -> None
     assert opts["noplaylist"] is False
     assert opts["playlist_items"] == "1,4"
     assert "%(autonumber)02d" in opts["outtmpl"]
+
+
+def test_altstore_source_generator_deduplicates_and_sorts() -> None:
+    from scripts.generate_altstore_source import BUNDLE_ID, build_altstore_source
+
+    v15 = build_altstore_source("v1.5.0", ipa_size=25_000_000, release_date="2026-11-25T00:00:00Z")
+    v16 = build_altstore_source(
+        "1.6.0",
+        ipa_size=26_123_456,
+        existing_data=v15,
+        release_date="2026-11-26T00:00:00Z",
+    )
+    app_entry = v16["apps"][0]
+    assert app_entry["bundleIdentifier"] == BUNDLE_ID
+    assert [v["version"] for v in app_entry["versions"]] == ["1.6.0", "1.5.0"]
+    assert app_entry["versions"][0]["size"] == 26_123_456
+    assert app_entry["versions"][0]["downloadURL"].endswith("/v1.6.0/Download-v1.6.0-ios.ipa")
+
+
+def test_library_playlists_upload_stream_and_metadata_tagging(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from app import library_service as lib
+    from app.config import resolve_binary
+
+    monkeypatch.setattr(lib, "USER_DATA_DIR", tmp_path / "userdata")
+    monkeypatch.setattr(lib, "IMPORTED_MEDIA_DIR", tmp_path / "userdata" / "imported_media")
+    monkeypatch.setattr(lib, "LIBRARY_REGISTRY_FILE", tmp_path / "userdata" / "library_registry.json")
+    monkeypatch.setattr(lib, "PLAYLISTS_FILE", tmp_path / "userdata" / "playlists.json")
+    monkeypatch.setattr(lib, "get_download_dir", lambda: tmp_path / "downloads")
+    (tmp_path / "downloads").mkdir()
+
+    assert lib.clean_track_query("01 - Mi Cancion (Official Video) [HD].mp3") == "Mi Cancion"
+    assert lib.is_allowed_media_path(tmp_path / "outside.mp3") is False
+
+    ffmpeg = resolve_binary("ffmpeg")
+    assert ffmpeg is not None
+    sample_mp3 = tmp_path / "src.mp3"
+    proc = subprocess.run(
+        [ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.5", "-q:a", "9", str(sample_mp3)],
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0 and sample_mp3.is_file()
+
+    with TestClient(app) as client:
+        # 1) Upload external audio file
+        upload = client.post(
+            "/api/library/upload",
+            files={"file": ("track externo.mp3", sample_mp3.read_bytes(), "audio/mpeg")},
+        )
+        assert upload.status_code == 200
+        item = upload.json()["item"]
+        track_path = item["path"]
+        assert item["source"] == "imported"
+
+        # 2) HTTP Range streaming returns 206 Partial Content
+        stream_resp = client.get(
+            "/api/library/stream",
+            params={"path": track_path},
+            headers={"Range": "bytes=0-127"},
+        )
+        assert stream_resp.status_code == 206
+        assert len(stream_resp.content) == 128
+
+        # 3) Apply manual metadata + tiny PNG cover
+        tiny_png_b64 = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2Z0AAAAASUVORK5CYII="
+        )
+        tag_resp = client.post(
+            "/api/library/metadata/apply",
+            json={
+                "path": track_path,
+                "title": "Nueva Pista",
+                "artist": "Artista Prueba",
+                "album": "Album 2026",
+                "year": "2026",
+                "genre": "Pop",
+                "track": "1/10",
+                "cover_base64": tiny_png_b64,
+            },
+        )
+        assert tag_resp.status_code == 200
+        tagged = tag_resp.json()["item"]
+        assert tagged["title"] == "Nueva Pista"
+        assert tagged["artist"] == "Artista Prueba"
+        assert tagged["album"] == "Album 2026"
+        assert tagged["year"] == "2026"
+        assert tagged["has_cover"] is True
+
+        cover_resp = client.get("/api/library/cover", params={"path": track_path})
+        assert cover_resp.status_code == 200
+        assert cover_resp.headers["content-type"].startswith("image/")
+
+        # 4) Playlist CRUD
+        pl_create = client.post(
+            "/api/library/playlists",
+            json={"name": "Mix Audio", "kind": "audio", "items": [track_path]},
+        )
+        assert pl_create.status_code == 200
+        pl_id = pl_create.json()["playlist"]["id"]
+
+        pl_list = client.get("/api/library/playlists").json()["playlists"]
+        assert len(pl_list) == 1 and pl_list[0]["name"] == "Mix Audio"
+
+        pl_upd = client.put(f"/api/library/playlists/{pl_id}", json={"name": "Mix Editado"})
+        assert pl_upd.status_code == 200
+        assert pl_upd.json()["playlist"]["name"] == "Mix Editado"
+
+        pl_del = client.delete(f"/api/library/playlists/{pl_id}")
+        assert pl_del.status_code == 200
+        assert client.get("/api/library/playlists").json()["playlists"] == []
+
 
 

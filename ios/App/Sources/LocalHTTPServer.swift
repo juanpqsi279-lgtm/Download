@@ -4,6 +4,7 @@ import YTDLP
 
 final class LocalHTTPServer {
     private let engine: DownloadManagerEngine
+    private let library = MediaLibraryManager()
     private let onOpenShareSheet: (URL) -> Void
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.juancorporation.exclaimdownload.http", qos: .userInitiated)
@@ -79,15 +80,15 @@ final class LocalHTTPServer {
                 let method = firstParts.first.map { String($0).uppercased() } ?? "GET"
                 let target = firstParts.count > 1 ? String(firstParts[1]) : "/"
 
-                var contentLength = 0
+                var headers: [String: String] = [:]
                 for line in lines.dropFirst() {
                     if let colon = line.firstIndex(of: ":") {
                         let k = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-                        if k == "content-length" {
-                            contentLength = Int(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)) ?? 0
-                        }
+                        let v = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                        headers[k] = v
                     }
                 }
+                let contentLength = Int(headers["content-length"] ?? "0") ?? 0
 
                 let availableBody = acc.count - bodyStart
                 if availableBody >= contentLength {
@@ -95,7 +96,7 @@ final class LocalHTTPServer {
                         ? acc.subdata(in: bodyStart..<(bodyStart + contentLength))
                         : Data()
                     DispatchQueue.global(qos: .userInitiated).async {
-                        self.dispatch(method: method, rawTarget: target, body: bodyData, conn: conn)
+                        self.dispatch(method: method, rawTarget: target, headers: headers, body: bodyData, conn: conn)
                     }
                     return
                 }
@@ -109,7 +110,7 @@ final class LocalHTTPServer {
         }
     }
 
-    private func dispatch(method: String, rawTarget: String, body: Data, conn: NWConnection) {
+    private func dispatch(method: String, rawTarget: String, headers: [String: String], body: Data, conn: NWConnection) {
         let qIdx = rawTarget.firstIndex(of: "?")
         let path = qIdx.map { String(rawTarget[..<$0]) } ?? rawTarget
         let query = qIdx.map { String(rawTarget[rawTarget.index(after: $0)...]) } ?? ""
@@ -326,6 +327,113 @@ final class LocalHTTPServer {
             return
         }
 
+        if method == "GET" && path == "/api/library/files" {
+            sendJson(conn, status: 200, dict: [
+                "items": library.scanLibrary(),
+                "download_dir": "Archivos/!Download",
+            ])
+            return
+        }
+
+        if method == "POST" && path == "/api/library/upload" {
+            let contentType = headers["content-type"] ?? ""
+            var fileName = (headers["x-filename"] ?? "pista.mp3").removingPercentEncoding ?? "pista.mp3"
+            var fileData = body
+            if contentType.lowercased().contains("multipart/form-data"),
+               let bRange = contentType.range(of: "boundary=") {
+                let boundary = String(contentType[bRange.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+                if let parsed = extractMultipartFile(data: body, boundary: boundary) {
+                    fileName = parsed.0
+                    fileData = parsed.1
+                }
+            }
+            do {
+                let item = try library.saveImportedFile(filename: fileName, data: fileData)
+                sendJson(conn, status: 200, dict: ["item": item])
+            } catch {
+                sendJson(conn, status: 400, dict: ["detail": error.localizedDescription])
+            }
+            return
+        }
+
+        if method == "GET" && path == "/api/library/stream" {
+            let targetPath = parseQueryParam(query, key: "path") ?? ""
+            if !library.streamMedia(path: targetPath, rangeHeader: headers["range"], conn: conn) {
+                sendJson(conn, status: 404, dict: ["detail": "Archivo multimedia no encontrado."])
+            }
+            return
+        }
+
+        if method == "GET" && path == "/api/library/cover" {
+            let targetPath = parseQueryParam(query, key: "path") ?? ""
+            if let (imgData, mime) = library.extractCover(path: targetPath) {
+                sendBytes(conn, status: 200, mime: mime, data: imgData, extraHeaders: ["Cache-Control": "no-cache"])
+            } else {
+                sendJson(conn, status: 404, dict: ["detail": "Sin carátula embebida."])
+            }
+            return
+        }
+
+        if method == "POST" && path == "/api/library/metadata/auto" {
+            let req = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+            let q = (req["query"] as? String) ?? ""
+            let limit = (req["limit"] as? Int) ?? 6
+            sendJson(conn, status: 200, dict: ["results": library.lookupMetadataOnline(query: q, limit: limit)])
+            return
+        }
+
+        if method == "POST" && path == "/api/library/metadata/apply" {
+            let req = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+            do {
+                let updated = try library.applyMetadata(req)
+                sendJson(conn, status: 200, dict: ["item": updated])
+            } catch {
+                sendJson(conn, status: 400, dict: ["detail": error.localizedDescription])
+            }
+            return
+        }
+
+        if method == "GET" && path == "/api/library/playlists" {
+            sendJson(conn, status: 200, dict: ["playlists": library.listPlaylists()])
+            return
+        }
+
+        if method == "POST" && path == "/api/library/playlists" {
+            let req = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+            do {
+                let pl = try library.createPlaylist(req)
+                sendJson(conn, status: 200, dict: ["playlist": pl])
+            } catch {
+                sendJson(conn, status: 400, dict: ["detail": error.localizedDescription])
+            }
+            return
+        }
+
+        if method == "PUT" && path.hasPrefix("/api/library/playlists/") {
+            let id = String(path.dropFirst("/api/library/playlists/".count))
+            let req = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+            do {
+                if let updated = try library.updatePlaylist(id: id, req: req) {
+                    sendJson(conn, status: 200, dict: ["playlist": updated])
+                } else {
+                    sendJson(conn, status: 404, dict: ["detail": "Lista no encontrada."])
+                }
+            } catch {
+                sendJson(conn, status: 400, dict: ["detail": error.localizedDescription])
+            }
+            return
+        }
+
+        if method == "DELETE" && path.hasPrefix("/api/library/playlists/") {
+            let id = String(path.dropFirst("/api/library/playlists/".count))
+            if library.deletePlaylist(id: id) {
+                sendJson(conn, status: 200, dict: ["deleted": true])
+            } else {
+                sendJson(conn, status: 404, dict: ["detail": "Lista no encontrada."])
+            }
+            return
+        }
+
         sendJson(conn, status: 404, dict: ["detail": "Ruta no encontrada."])
     }
 
@@ -432,6 +540,29 @@ final class LocalHTTPServer {
         conn.send(content: full, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
             conn.cancel()
         })
+    }
+
+    private func extractMultipartFile(data: Data, boundary: String) -> (String, Data)? {
+        guard !boundary.isEmpty,
+              let marker = "--\(boundary)".data(using: .ascii),
+              let sep = "\r\n\r\n".data(using: .utf8) else { return nil }
+        var searchStart = data.startIndex
+        while let markerRange = data.range(of: marker, in: searchStart..<data.endIndex) {
+            let headerStart = markerRange.upperBound + 2
+            guard headerStart < data.endIndex,
+                  let sepRange = data.range(of: sep, in: headerStart..<data.endIndex) else { break }
+            let headerStr = String(decoding: data.subdata(in: headerStart..<sepRange.lowerBound), as: UTF8.self)
+            let bodyStart = sepRange.upperBound
+            guard let nextMarker = data.range(of: marker, in: bodyStart..<data.endIndex) else { break }
+            let bodyEnd = max(bodyStart, nextMarker.lowerBound - 2)
+            if let fnMatch = headerStr.range(of: #"filename="([^"]+)""#, options: .regularExpression) {
+                let raw = String(headerStr[fnMatch])
+                let name = raw.replacingOccurrences(of: #"filename="([^"]+)""#, with: "$1", options: .regularExpression)
+                return (name, data.subdata(in: bodyStart..<bodyEnd))
+            }
+            searchStart = nextMarker.lowerBound
+        }
+        return nil
     }
 
     private func parseQueryParam(_ query: String, key: String) -> String? {

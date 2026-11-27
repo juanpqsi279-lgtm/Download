@@ -299,6 +299,41 @@ class DesktopBridge:
         finally:
             self._dialog_lock.release()
 
+    def select_media_files(self) -> list[str]:
+        if self._window is None:
+            return []
+        if not self._dialog_lock.acquire(blocking=False):
+            return []
+        try:
+            current = str(get_download_dir())
+
+            def _open_dialog() -> Any:
+                assert self._window is not None
+                return self._window.create_file_dialog(
+                    webview.FileDialog.OPEN,
+                    directory=current,
+                    allow_multiple=True,
+                    file_types=(
+                        "Multimedia (*.mp3;*.m4a;*.flac;*.wav;*.opus;*.ogg;*.mp4;*.mkv;*.webm;*.mov)",
+                        "Todos los archivos (*.*)",
+                    ),
+                )
+
+            if sys.platform == "win32":
+                selected = _invoke_winforms(
+                    getattr(self._window, "native", None), _open_dialog, wait=True
+                )
+            else:
+                selected = _open_dialog()
+
+            if isinstance(selected, str) and selected.strip():
+                return [selected]
+            if selected:
+                return [str(p) for p in selected if str(p).strip()]
+            return []
+        finally:
+            self._dialog_lock.release()
+
     def read_clipboard_text(self) -> str:
         return _read_windows_clipboard_text()
 

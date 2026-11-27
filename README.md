@@ -10,11 +10,11 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Windows (10 / 11)
 
-- **Opción 1 — Instalador (`Download-Setup-v1.5.0.exe`):**
-  1. Descarga **`Download-Setup-v1.5.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+- **Opción 1 — Instalador (`Download-Setup-v1.6.0.exe`):**
+  1. Descarga **`Download-Setup-v1.6.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
   2. Ejecuta el instalador para crear los accesos directos y activar auto-actualizaciones.
-- **Opción 2 — Portable (`Download-Portable-v1.5.0.zip`):**
-  1. Descarga y descomprime **`Download-Portable-v1.5.0.zip`**.
+- **Opción 2 — Portable (`Download-Portable-v1.6.0.zip`):**
+  1. Descarga y descomprime **`Download-Portable-v1.6.0.zip`**.
   2. Abre **`!Download.exe`**.
 - **Opción 3 — Ejecutar desde código fuente (recomendado si Windows bloquea el `.exe`):**
   1. Clona o descarga este repositorio.
@@ -27,20 +27,20 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Linux (`x86_64` / `amd64`)
 
-- **Opción 1 — AppImage universal (`Download-v1.5.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
+- **Opción 1 — AppImage universal (`Download-v1.6.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
   ```bash
-  chmod +x Download-v1.5.0-linux-x86_64.AppImage
-  ./Download-v1.5.0-linux-x86_64.AppImage
+  chmod +x Download-v1.6.0-linux-x86_64.AppImage
+  ./Download-v1.6.0-linux-x86_64.AppImage
   ```
-  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.5.0-linux-x86_64.AppImage --appimage-extract-and-run`.
-- **Opción 2 — Paquete `.deb` (`Download-v1.5.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
+  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.6.0-linux-x86_64.AppImage --appimage-extract-and-run`.
+- **Opción 2 — Paquete `.deb` (`Download-v1.6.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
   ```bash
-  sudo apt install ./Download-v1.5.0-linux-amd64.deb
+  sudo apt install ./Download-v1.6.0-linux-amd64.deb
   ```
   Luego ábrelo desde tu menú de aplicaciones o ejecutando `exclaim-download` en terminal.
-- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.5.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
+- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.6.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
   ```bash
-  tar -xzf Download-Portable-v1.5.0-linux-x86_64.tar.gz
+  tar -xzf Download-Portable-v1.6.0-linux-x86_64.tar.gz
   ./exclaim-download/exclaim-download
   ```
   Si deseas agregar acceso directo al menú del sistema, ejecuta `./exclaim-download/install-desktop.sh`.
@@ -56,43 +56,48 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Android (`.apk` todo incluido)
 
-- **`Download-v1.5.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
-- **`Download-v1.5.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+- **`Download-v1.6.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.6.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
 
 **Pasos de instalación:**
 1. Descarga el `.apk` desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest) en tu teléfono.
 2. Ábrelo desde Descargas o tu gestor de archivos; si Android lo solicita, activa **Instalar aplicaciones desconocidas** para tu navegador o gestor de archivos.
 3. Pulsa **Instalar** y concede permiso de notificaciones/almacenamiento cuando lo pida.
-4. Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Descargas/!Download/`, **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK desde Ajustes.
+4. Incluye motor `yt-dlp` + `FFmpeg` embebido, guardado directo en `Descargas/!Download/`, **Compartir → `!Download`** desde YouTube/TikTok/Instagram/X y actualización del motor y APK en 1 toque desde Ajustes.
 
 ---
 
-### iPhone / iPad (`Download-v1.5.0-ios.ipa` + Safari PWA)
+### iPhone / iPad (`Download-v1.6.0-ios.ipa` + SideStore / AltStore)
 
-En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID (la primera vez requiere conectar tu iPhone a una PC o Mac). Tus descargas se guardan en la app **Archivos → En mi iPhone → `!Download`** (con botón para compartir o guardar en Fotos).
+En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID (con **SideStore** solo necesitas conectar tu iPhone a una PC **una única vez**; después actualizas `!Download` directo en tu iPhone sin PC). Tus descargas se guardan en la app **Archivos → En mi iPhone → `!Download`**.
 
-- **Opción 1 — [Sideloadly](https://sideloadly.io/) *(la más rápida desde PC/Mac)*:**
-  1. Descarga e instala Sideloadly desde su sitio oficial: **https://sideloadly.io/**.
-  2. **Solo en Windows:** instala las versiones **web** (NO las de Microsoft Store) de **[iTunes 64-bit](https://www.apple.com/itunes/win64)** ([32-bit](https://www.apple.com/itunes/win32)) e **[iCloud para Windows](https://support.apple.com/HT204283)** (también enlazados dentro de [sideloadly.io](https://sideloadly.io/)). Reinicia la PC si es la primera vez.
-  3. Descarga **`Download-v1.5.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
-  4. Conecta tu iPhone por cable USB de datos, desbloquéalo y pulsa **Confiar** si te lo pregunta.
-  5. Arrastra el `.ipa` a Sideloadly, escribe tu Apple ID y pulsa **Start**.
-  6. En tu iPhone (solo la primera vez):
-     - En **iOS 16+**, activa *Ajustes → Privacidad y seguridad → Modo de desarrollador*.
-     - Ve a *Ajustes → General → VPN y gestión de dispositivos* y pulsa **Confiar** en tu Apple ID.
-  > Con Apple ID gratuito la firma caduca cada 7 días; Sideloadly puede renovarla automáticamente por Wi-Fi mientras tu PC esté encendida.
+- **Opción 1 — [SideStore](https://sidestore.io/) *(Recomendado: sin PC para actualizar)*:**
+  1. Instala SideStore una sola vez siguiendo **https://sidestore.io/**.
+  2. En SideStore entra a **Sources → `+`** y añade la fuente oficial de `!Download`:
+     ```
+     https://github.com/juanpqsi279-lgtm/Download/releases/latest/download/altstore-source.json
+     ```
+     *(También puedes copiarla o abrirla directo desde **Ajustes** dentro de `!Download`)*
+  3. Instala **`!Download`** y, cada vez que salga una versión nueva, actualízala en **1 toque desde SideStore** sin volver a conectar la PC.
 
-- **Opción 2 — [SideStore](https://sidestore.io/) *(PC solo 1 vez; luego instalas y renuevas desde el mismo iPhone)*:**
-  Instala SideStore una vez siguiendo la guía oficial en **https://sidestore.io/**; después podrás abrir `Download-v1.5.0-ios.ipa` y renovarlo directo en tu iPhone sin PC.
+- **Opción 2 — [Sideloadly](https://sideloadly.io/) *(desde PC/Mac)*:**
+  1. Descarga Sideloadly (**https://sideloadly.io/**). En Windows usa las versiones **web** de iTunes e iCloud.
+  2. Descarga **`Download-v1.6.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest), arrástralo a Sideloadly, escribe tu Apple ID y pulsa **Start**.
+  3. En tu iPhone (primera vez): activa *Ajustes → Privacidad y seguridad → Modo de desarrollador* y confía en tu perfil en *Ajustes → General → VPN y gestión de dispositivos*.
 
-- **Opción 3 — [AltStore](https://altstore.io/) *(PC/Mac + iPhone por Wi-Fi)*:**
-  Instala AltServer en tu PC/Mac desde **https://altstore.io/** e instala el `.ipa` desde AltStore en tu iPhone.
+- **Opción 3 — [AltStore](https://altstore.io/) / [TrollStore](https://github.com/opa334/TrollStore) / Safari PWA:**
+  Compatible con AltServer por Wi-Fi (puedes añadir la misma URL `altstore-source.json`), TrollStore (permanente en iOS compatibles), o usar `!Download` desde **Safari → Compartir → Añadir a pantalla de inicio** ejecutándolo en tu PC/Mac.
 
-- **Opción 4 — [TrollStore](https://github.com/opa334/TrollStore) *(solo versiones de iOS compatibles, sin caducidad de 7 días)*:**
-  Permite instalar `Download-v1.5.0-ios.ipa` de forma permanente desde **https://github.com/opa334/TrollStore**.
+---
 
-- **Opción 5 — Sin instalar `.ipa` (PWA en Safari):**
-  Ejecuta `!Download` en tu PC o Mac dentro de la misma red Wi-Fi, abre la dirección en **Safari** desde tu iPhone y pulsa **Compartir → Añadir a pantalla de inicio**.
+## Reproductor nativo, Ecualizador y Editor de Metadatos
+
+Además de descargar videos y música, `!Download` incluye un reproductor multimedia integrado disponible en Windows, Linux, Android, iOS y Web:
+
+- **Audio y Video local:** reproduce tus descargas o importa cualquier canción/video externo (`+ Importar archivo`).
+- **Ecualizador de 10 bandas + Guía integrada:** incluye `32 Hz – 16 kHz`, Preamp, limitador anti-saturación, **12 presets** (`Graves Potentes`, `Agudos y Claridad`, `Vocal`, `Rock`, `Electrónica`, `Podcast`, etc.) y una **guía práctica de ecualización** con botones de ajuste rápido.
+- **Aplicar metadatos (Manual y Automático):** desde **Biblioteca** o **"Aplicar metadatos a externa"**, edita Título, Artista, Álbum, Año, Género, Pista y Carátula, o usa la **Búsqueda automática** para rellenar etiquetas y portada HD en 1 clic directamente dentro del archivo.
+- **Listas de reproducción de Audio y Video:** crea listas separadas de solo audio, solo video o mixtas, reordena elementos y reprodúcelas con shuffle, repetición, temporizador, velocidad `0.5x–2.0x` y bucle A-B.
 
 ---
 
@@ -146,16 +151,16 @@ Requiere macOS con Xcode 16+ y `xcodegen`:
 
 ```bash
 mkdir -p ios/App/WebAssets/static
-cp static/index.html static/styles.css static/app.js static/icon.png static/manifest.webmanifest ios/App/WebAssets/static/
+cp static/index.html static/styles.css static/app.js static/player.js static/icon.png static/manifest.webmanifest ios/App/WebAssets/static/
 cd ios && xcodegen generate
 ```
 
 ## Publicar una nueva versión en GitHub Releases
 
-El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux**, **Android** e **iOS**, verifica `--self-check` y publica todos los archivos automáticamente al subir una etiqueta `v*`:
+El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux**, **Android** e **iOS**, verifica `--self-check` y publica todos los archivos automáticamente (incluido `altstore-source.json`) al subir una etiqueta `v*`:
 
 ```bash
-git tag v1.5.0 && git push origin v1.5.0
+git tag v1.6.0 && git push origin v1.6.0
 ```
 
 ## Licencia

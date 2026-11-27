@@ -11,12 +11,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -30,6 +32,28 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private var pageLoaded = false
     private var pendingSharedUrl: String? = null
+    private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+
+    private val fileChooserLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val callback = fileChooserCallback
+        fileChooserCallback = null
+        if (callback == null) return@registerForActivityResult
+        val data = result.data
+        val uris: Array<Uri>? = if (result.resultCode == RESULT_OK && data != null) {
+            val clip = data.clipData
+            when {
+                clip != null && clip.itemCount > 0 ->
+                    Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
+                data.data != null -> arrayOf(data.data!!)
+                else -> null
+            }
+        } else {
+            null
+        }
+        callback.onReceiveValue(uris)
+    }
 
     companion object {
         @Volatile
@@ -56,7 +80,34 @@ class MainActivity : AppCompatActivity() {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
             addJavascriptInterface(AndroidBridge(), "AndroidBridge")
-            webChromeClient = WebChromeClient()
+            webChromeClient = object : WebChromeClient() {
+                override fun onShowFileChooser(
+                    webView: WebView?,
+                    filePathCallback: ValueCallback<Array<Uri>>?,
+                    fileChooserParams: FileChooserParams?,
+                ): Boolean {
+                    fileChooserCallback?.onReceiveValue(null)
+                    fileChooserCallback = filePathCallback
+                    val accept = fileChooserParams?.acceptTypes?.filter { it.isNotBlank() }?.toTypedArray()
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = if (accept != null && accept.size == 1) accept[0] else "*/*"
+                        if (accept != null && accept.size > 1) {
+                            putExtra(Intent.EXTRA_MIME_TYPES, accept)
+                        }
+                        if (fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE) {
+                            putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        }
+                    }
+                    return try {
+                        fileChooserLauncher.launch(intent)
+                        true
+                    } catch (_: Exception) {
+                        fileChooserCallback = null
+                        false
+                    }
+                }
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     val uri = request.url ?: return false

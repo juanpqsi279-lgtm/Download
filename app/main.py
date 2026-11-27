@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 import httpx
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -30,6 +30,20 @@ from app.config import (
     save_settings,
 )
 from app.jobs import TERMINAL_STATUSES, job_manager, translate_ytdlp_error
+from app.library_service import (
+    apply_audio_metadata,
+    create_playlist,
+    delete_playlist,
+    extract_embedded_cover,
+    guess_media_mime,
+    is_allowed_media_path,
+    list_playlists,
+    lookup_metadata_online,
+    register_external_paths,
+    save_uploaded_media,
+    scan_library,
+    update_playlist,
+)
 from app.media_service import extract_media_info, format_content_disposition, validate_url
 from app.platform_utils import open_path_in_os, reveal_in_file_manager
 from app.schemas import (
@@ -37,8 +51,13 @@ from app.schemas import (
     AppUpdateRequest,
     DownloadRequest,
     JobStatusResponse,
+    LibraryRegisterRequest,
     MediaInfoResponse,
+    MetadataApplyRequest,
+    MetadataLookupRequest,
     OpenPathRequest,
+    PlaylistCreateRequest,
+    PlaylistUpdateRequest,
     SettingsUpdateRequest,
 )
 from app.updater import check_app_update, download_and_apply_app_update, update_ytdlp_engine
@@ -142,7 +161,7 @@ async def api_update_app(req: AppUpdateRequest) -> dict[str, object]:
 
 
 def _is_allowed_local_path(target: Path) -> bool:
-    if job_manager.is_known_saved_file(target):
+    if job_manager.is_known_saved_file(target) or is_allowed_media_path(target):
         return True
     try:
         resolved = target.resolve()
@@ -328,6 +347,150 @@ async def download_completed_file(job_id: str) -> FileResponse:
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+@app.get("/api/library/files")
+async def api_library_files() -> dict[str, object]:
+    items = await asyncio.to_thread(scan_library)
+    return {"items": items, "download_dir": str(get_download_dir())}
+
+
+@app.post("/api/library/register")
+async def api_library_register(req: LibraryRegisterRequest) -> dict[str, object]:
+    items = await asyncio.to_thread(register_external_paths, req.paths)
+    return {"added": items}
+
+
+@app.post("/api/library/upload")
+async def api_library_upload(request: Request) -> dict[str, object]:
+    from urllib.parse import unquote
+    import re
+
+    raw = await request.body()
+    content_type = request.headers.get("content-type", "")
+    filename = unquote(request.headers.get("x-filename", "pista.mp3"))
+
+    if "multipart/form-data" in content_type.lower() and "boundary=" in content_type:
+        boundary = content_type.split("boundary=", 1)[1].split(";", 1)[0].strip().strip('"')
+        marker = f"--{boundary}".encode("ascii", errors="ignore")
+        parts = raw.split(marker)
+        extracted_bytes: bytes | None = None
+        for part in parts:
+            if b"Content-Disposition:" in part and b"\r\n\r\n" in part:
+                hdr, _, body = part.partition(b"\r\n\r\n")
+                hdr_text = hdr.decode("utf-8", errors="ignore")
+                m = re.search(r'filename="([^"]+)"', hdr_text)
+                if m:
+                    filename = m.group(1)
+                    extracted_bytes = body.removesuffix(b"\r\n")
+                    break
+        if extracted_bytes is None:
+            raise HTTPException(status_code=400, detail="No se recibió ningún archivo en la petición.")
+        raw = extracted_bytes
+
+    try:
+        item = await asyncio.to_thread(save_uploaded_media, filename, raw)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": item}
+
+
+@app.get("/api/library/stream")
+async def api_library_stream(path: str = Query(..., min_length=1, max_length=1024)) -> FileResponse:
+    target = Path(path)
+    if not is_allowed_media_path(target):
+        raise HTTPException(status_code=403, detail="Archivo fuera de las carpetas permitidas.")
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="El archivo multimedia no existe.")
+    return FileResponse(
+        path=target,
+        media_type=guess_media_mime(target),
+        headers={"X-Content-Type-Options": "nosniff", "Accept-Ranges": "bytes"},
+    )
+
+
+@app.get("/api/library/cover")
+async def api_library_cover(path: str = Query(..., min_length=1, max_length=1024)) -> Response:
+    target = Path(path)
+    if not is_allowed_media_path(target):
+        raise HTTPException(status_code=403, detail="Archivo fuera de las carpetas permitidas.")
+    cover = await asyncio.to_thread(extract_embedded_cover, target)
+    if cover is None:
+        raise HTTPException(status_code=404, detail="Sin carátula embebida.")
+    img_bytes, mime_type = cover
+    return Response(
+        content=img_bytes,
+        media_type=mime_type,
+        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+@app.post("/api/library/metadata/auto")
+async def api_metadata_auto(req: MetadataLookupRequest) -> dict[str, object]:
+    try:
+        candidates = await asyncio.to_thread(lookup_metadata_online, req.query, req.limit)
+        return {"results": candidates}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"No se pudo buscar metadatos en línea: {exc}") from exc
+
+
+@app.post("/api/library/metadata/apply")
+async def api_metadata_apply(req: MetadataApplyRequest) -> dict[str, object]:
+    target = Path(req.path)
+    try:
+        updated = await asyncio.to_thread(
+            apply_audio_metadata,
+            target,
+            title=req.title,
+            artist=req.artist,
+            album=req.album,
+            year=req.year,
+            genre=req.genre,
+            track=req.track,
+            cover_url=req.cover_url,
+            cover_base64=req.cover_base64,
+        )
+        return {"item": updated}
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"No se pudieron guardar los metadatos: {exc}") from exc
+
+
+@app.get("/api/library/playlists")
+async def api_library_playlists() -> dict[str, object]:
+    return {"playlists": list_playlists()}
+
+
+@app.post("/api/library/playlists")
+async def api_library_create_playlist(req: PlaylistCreateRequest) -> dict[str, object]:
+    try:
+        created = create_playlist(req.name, req.kind, req.items)
+        return {"playlist": created}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/library/playlists/{playlist_id}")
+async def api_library_update_playlist(playlist_id: str, req: PlaylistUpdateRequest) -> dict[str, object]:
+    try:
+        updated = update_playlist(playlist_id, name=req.name, kind=req.kind, items=req.items)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Lista de reproducción no encontrada.")
+    return {"playlist": updated}
+
+
+@app.delete("/api/library/playlists/{playlist_id}")
+async def api_library_delete_playlist(playlist_id: str) -> dict[str, bool]:
+    if not delete_playlist(playlist_id):
+        raise HTTPException(status_code=404, detail="Lista de reproducción no encontrada.")
+    return {"deleted": True}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

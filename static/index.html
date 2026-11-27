@@ -49,6 +49,17 @@
           <span class="sidebar-label">Descargar</span>
         </button>
 
+        <button type="button" class="sidebar-item" data-view="player">
+          <span class="sf-squircle sf-pink" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+          </span>
+          <span class="sidebar-label">Reproductor</span>
+        </button>
+
         <button type="button" class="sidebar-item" data-view="activity">
           <span class="sf-squircle sf-indigo" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
@@ -172,6 +183,7 @@
               <div class="progress-actions">
                 <button type="button" class="danger-pill-btn" id="cancelJobBtn">Cancelar</button>
                 <button type="button" class="apple-secondary-pill" id="openSavedFolderBtn" hidden>Mostrar en carpeta</button>
+                <button type="button" class="apple-secondary-pill" id="playSavedFileBtn" hidden>Reproducir</button>
                 <button type="button" class="apple-blue-pill" id="openSavedFileBtn" hidden>Abrir archivo</button>
                 <a class="apple-blue-pill" id="saveFileBtn" href="#" download hidden>Guardar archivo</a>
               </div>
@@ -505,6 +517,363 @@
           </div>
         </section>
 
+        <!-- VIEW: REPRODUCTOR NATIVO -->
+        <section class="app-view player-view" id="viewPlayer" data-view-panel="player" hidden>
+          <!-- Hidden/Embedded Media Elements -->
+          <audio id="nativeAudioEl" preload="metadata" crossorigin="anonymous"></audio>
+
+          <!-- Now Playing Liquid Glass Stage -->
+          <section class="apple-card player-stage-card" id="playerStageCard">
+            <img class="player-ambient-bg" id="playerAmbientBg" alt="" aria-hidden="true" hidden>
+            <div class="player-stage-inner">
+              <!-- Video Surface (visible when playing video) -->
+              <div class="player-video-wrap" id="videoStage" hidden>
+                <video id="nativeVideoEl" playsinline webkit-playsinline controlsList="nodownload" preload="metadata" crossorigin="anonymous"></video>
+                <div class="video-overlay-tools">
+                  <button type="button" class="sheet-circle-btn" id="pipBtn" title="Imagen en imagen (PiP)" aria-label="Imagen en imagen">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <rect x="11" y="11" width="8" height="6" rx="1" />
+                    </svg>
+                  </button>
+                  <button type="button" class="sheet-circle-btn" id="videoFullscreenBtn" title="Pantalla completa" aria-label="Pantalla completa">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Audio Artwork + Visualizer Stage -->
+              <div class="player-audio-wrap" id="audioStage">
+                <div class="player-art-frame" id="playerArtFrame">
+                  <img id="playerArtwork" alt="Portada" hidden>
+                  <div class="player-art-fallback" id="playerArtFallback" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M9 18V5l12-2v13" />
+                      <circle cx="6" cy="18" r="3" />
+                      <circle cx="18" cy="16" r="3" />
+                    </svg>
+                  </div>
+                </div>
+                <div class="player-track-meta">
+                  <div class="player-badges-row">
+                    <span class="sheet-chip sheet-chip-accent" id="playerFormatPill">Audio / Video</span>
+                    <span class="sheet-chip" id="playerEqBadge" hidden>EQ Activo</span>
+                    <span class="sheet-chip" id="sleepTimerBadge" hidden></span>
+                    <span class="sheet-chip" id="abLoopBadge" hidden></span>
+                  </div>
+                  <h2 class="player-now-title" id="playerNowTitle">Elige una canción o video</h2>
+                  <p class="player-now-sub" id="playerNowSub">Explora tu biblioteca local o importa un archivo para comenzar</p>
+                  <canvas class="player-visualizer" id="playerVisualizer" width="460" height="56" aria-hidden="true"></canvas>
+                </div>
+              </div>
+
+              <!-- Scrubbing Timeline -->
+              <div class="player-timeline">
+                <input type="range" class="player-seek-slider" id="playerSeek" min="0" max="100" step="0.1" value="0" aria-label="Progreso de reproducción">
+                <div class="player-times-row">
+                  <span id="playerCurrentTime">0:00</span>
+                  <span id="playerDuration">0:00</span>
+                </div>
+              </div>
+
+              <!-- Transport Controls -->
+              <div class="player-transport">
+                <button type="button" class="player-icon-btn" id="playerShuffleBtn" title="Aleatorio" aria-label="Aleatorio">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+                  </svg>
+                </button>
+                <button type="button" class="player-icon-btn" id="playerPrevBtn" title="Anterior" aria-label="Anterior">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z" />
+                  </svg>
+                </button>
+                <button type="button" class="player-icon-btn player-skip-btn" id="playerBack10Btn" title="Retroceder 10 s" aria-label="Retroceder 10 segundos">-10s</button>
+                <button type="button" class="player-play-circle" id="playerPlayBtn" title="Reproducir / Pausar" aria-label="Reproducir o pausar">
+                  <svg class="play-glyph" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5.14v14l11-7-11-7Z" />
+                  </svg>
+                  <svg class="pause-glyph" viewBox="0 0 24 24" fill="currentColor" hidden>
+                    <path d="M7 5h3.5v14H7zm6.5 0H17v14h-3.5z" />
+                  </svg>
+                </button>
+                <button type="button" class="player-icon-btn player-skip-btn" id="playerFwd10Btn" title="Adelantar 10 s" aria-label="Adelantar 10 segundos">+10s</button>
+                <button type="button" class="player-icon-btn" id="playerNextBtn" title="Siguiente" aria-label="Siguiente">
+                  <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z" />
+                  </svg>
+                </button>
+                <button type="button" class="player-icon-btn" id="playerRepeatBtn" title="Repetir" aria-label="Modo de repetición">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="m17 2 4 4-4 4" />
+                    <path d="M3 11v-1a4 4 0 0 1 4-4h14" />
+                    <path d="m7 22-4-4 4-4" />
+                    <path d="M21 13v1a4 4 0 0 1-4 4H3" />
+                  </svg>
+                </button>
+              </div>
+
+              <!-- Utility Toolbar: Volume, Speed, Sleep Timer, A-B Loop, Tag -->
+              <div class="player-utilities-row">
+                <div class="player-volume-box">
+                  <button type="button" class="player-mini-btn" id="playerMuteBtn" title="Silenciar" aria-label="Silenciar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                    </svg>
+                  </button>
+                  <input type="range" class="player-volume-slider" id="playerVolume" min="0" max="1" step="0.02" value="1" aria-label="Volumen">
+                </div>
+
+                <div class="player-utility-pills">
+                  <button type="button" class="apple-secondary-pill" id="playerSpeedBtn" title="Velocidad de reproducción">1.0x</button>
+                  <button type="button" class="apple-secondary-pill" id="playerSleepBtn" title="Temporizador de apagado">Temporizador</button>
+                  <button type="button" class="apple-secondary-pill" id="playerAbBtn" title="Bucle A-B entre dos puntos">Bucle A-B</button>
+                  <button type="button" class="apple-blue-pill" id="playerTagCurrentBtn" title="Aplicar metadatos a esta canción" hidden>Metadatos</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Sub-panel Segmented Navigation -->
+          <div class="segmented-control player-subtabs" id="playerSubtabs" role="tablist" aria-label="Secciones del reproductor">
+            <button type="button" class="segmented-btn is-active" data-player-tab="library">Biblioteca</button>
+            <button type="button" class="segmented-btn" data-player-tab="playlists">Listas</button>
+            <button type="button" class="segmented-btn" data-player-tab="eq">Ecualizador</button>
+            <button type="button" class="segmented-btn" data-player-tab="customize">Estilo</button>
+          </div>
+
+          <!-- SUB-TAB 1: BIBLIOTECA -->
+          <section class="player-subpanel" id="playerTabLibrary" data-player-panel="library">
+            <div class="library-toolbar apple-card">
+              <div class="library-search-row">
+                <input type="search" id="librarySearchInput" class="apple-text-input" placeholder="Buscar canción, artista, álbum o video..." aria-label="Buscar en biblioteca">
+                <button type="button" class="apple-secondary-pill" id="refreshLibraryBtn" title="Volver a escanear carpeta">Actualizar</button>
+              </div>
+              <div class="library-filters-row">
+                <div class="scope-pills" id="libraryKindPills">
+                  <button type="button" class="apple-blue-pill" data-lib-filter="all">Todo</button>
+                  <button type="button" class="apple-secondary-pill" data-lib-filter="audio">Audio</button>
+                  <button type="button" class="apple-secondary-pill" data-lib-filter="video">Video</button>
+                </div>
+                <div class="library-import-actions">
+                  <button type="button" class="apple-secondary-pill" id="importMediaBtn">+ Importar archivo</button>
+                  <button type="button" class="apple-blue-pill" id="tagExternalBtn">Aplicar metadatos a externa</button>
+                  <input type="file" id="importMediaInput" multiple accept="audio/*,video/*" hidden>
+                </div>
+              </div>
+            </div>
+
+            <div class="inset-group" id="libraryListGroup" hidden>
+              <div class="inset-group-inner" id="libraryList"></div>
+            </div>
+
+            <div class="empty-apple-state apple-card" id="libraryEmptyState">
+              <span class="empty-squircle" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+              </span>
+              <h3>Tu biblioteca está vacía</h3>
+              <p>Las descargas que hagas en !Download aparecerán aquí, o pulsa <strong>+ Importar archivo</strong> para cargar música o videos que ya tengas en tu dispositivo.</p>
+            </div>
+          </section>
+
+          <!-- SUB-TAB 2: LISTAS DE REPRODUCCIÓN (AUDIO & VIDEO) -->
+          <section class="player-subpanel" id="playerTabPlaylists" data-player-panel="playlists" hidden>
+            <form class="apple-card playlist-creator-card" id="createPlaylistForm">
+              <input type="text" id="newPlaylistName" class="apple-text-input" placeholder="Nombre de la nueva lista (ej. Favoritas o Clips)..." maxlength="80">
+              <select id="newPlaylistKind" class="apple-select-pill" aria-label="Tipo de lista">
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="mixed">Mixta (Audio + Video)</option>
+              </select>
+              <button type="submit" class="apple-blue-pill" id="createPlaylistBtn">Crear lista</button>
+            </form>
+
+            <div class="inset-section" id="customPlaylistsSection">
+              <div class="inset-section-header">
+                <span>Tus listas de reproducción</span>
+              </div>
+              <div class="inset-group" id="customPlaylistsList"></div>
+            </div>
+
+            <div class="inset-section" id="playlistDetailView" hidden>
+              <div class="inset-section-header">
+                <span id="playlistDetailTitle">Lista</span>
+                <div class="playlist-detail-actions">
+                  <button type="button" class="apple-blue-pill" id="playPlaylistAllBtn">Reproducir todo</button>
+                  <button type="button" class="apple-secondary-pill" id="playPlaylistShuffleBtn">Aleatorio</button>
+                  <button type="button" class="apple-text-btn" id="renamePlaylistBtn">Renombrar</button>
+                  <button type="button" class="apple-text-btn" id="deletePlaylistBtn">Eliminar</button>
+                </div>
+              </div>
+              <div class="inset-group" id="playlistDetailItems"></div>
+            </div>
+
+            <div class="inset-section" id="folderCollectionsSection" hidden>
+              <div class="inset-section-header">
+                <span>Carpetas de playlists descargadas</span>
+              </div>
+              <div class="inset-group" id="folderCollectionsList"></div>
+            </div>
+          </section>
+
+          <!-- SUB-TAB 3: ECUALIZADOR + PRESETS + GUÍA -->
+          <section class="player-subpanel" id="playerTabEq" data-player-panel="eq" hidden>
+            <div class="inset-group">
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Activar ecualizador de 10 bandas</span>
+                  <span class="inset-row-sub">Procesamiento en tiempo real sin recodificar tus archivos</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="eqEnabledSwitch" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Limitador anti-saturación (Clipping Guard)</span>
+                  <span class="inset-row-sub">Evita distorsión si subes mucho los graves o la ganancia</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="eqLimiterSwitch" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+            </div>
+
+            <div class="inset-section">
+              <div class="inset-section-header">
+                <span>Presets integrados</span>
+                <button type="button" class="apple-text-btn" id="eqResetBtn">Restablecer plano</button>
+              </div>
+              <div class="eq-presets-row" id="eqPresetsRow"></div>
+            </div>
+
+            <div class="apple-card eq-rack-card">
+              <div class="eq-preamp-row">
+                <div class="eq-preamp-label">
+                  <span>Preamp (Ganancia general)</span>
+                  <strong id="eqPreampVal">0.0 dB</strong>
+                </div>
+                <input type="range" id="eqPreampSlider" min="-12" max="12" step="0.5" value="0" aria-label="Preamp en decibelios">
+              </div>
+              <div class="eq-bands-grid" id="eqBandsGrid"></div>
+            </div>
+
+            <!-- Brief Interactive Equalizer Guide -->
+            <div class="apple-card eq-guide-card" id="eqGuideCard">
+              <div class="eq-guide-head">
+                <div>
+                  <h3>Guía rápida: cómo ecualizar a tu gusto</h3>
+                  <p>Ajusta con suaves movimientos (±2 a ±6 dB) o prueba un ajuste directo:</p>
+                </div>
+                <div class="eq-quick-tweaks" id="eqQuickTweaks">
+                  <button type="button" class="apple-secondary-pill" data-eq-tweak="more_bass">+ Más graves</button>
+                  <button type="button" class="apple-secondary-pill" data-eq-tweak="more_treble">+ Más agudos</button>
+                  <button type="button" class="apple-secondary-pill" data-eq-tweak="clear_vocals">+ Destacar voz</button>
+                  <button type="button" class="apple-secondary-pill" data-eq-tweak="warm">+ Sonido cálido</button>
+                </div>
+              </div>
+              <div class="eq-guide-grid">
+                <div class="eq-guide-item">
+                  <strong>32 – 64 Hz · Subgraves</strong>
+                  <span>Dan la pegada profunda y vibración de bombos y bajos. Sube si sientes la música sin fuerza.</span>
+                </div>
+                <div class="eq-guide-item">
+                  <strong>125 – 250 Hz · Graves y Calidez</strong>
+                  <span>Aportan cuerpo a guitarras y bajos. Si el sonido se siente "encajonado", baja un poco los 250 Hz.</span>
+                </div>
+                <div class="eq-guide-item">
+                  <strong>500 Hz – 2 kHz · Medios y Voces</strong>
+                  <span>Aquí viven las voces principales e instrumentos. Sube 1–2 kHz para escuchar la letra más al frente.</span>
+                </div>
+                <div class="eq-guide-item">
+                  <strong>4 kHz · Presencia y Definición</strong>
+                  <span>Aporta nitidez y ataque. Útil en podcasts, diálogos y guitarras eléctricas.</span>
+                </div>
+                <div class="eq-guide-item">
+                  <strong>8 – 16 kHz · Agudos y Brillo</strong>
+                  <span>Dan "aire", platillos cristalinos y sensación de detalle. Sube para aclarar audio apagado.</span>
+                </div>
+                <div class="eq-guide-item">
+                  <strong>Tip de Preamp anti-distorsión</strong>
+                  <span>Si subes varios deslizadores arriba de +5 dB, baja el <strong>Preamp</strong> a -3 dB para conservar la claridad.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- SUB-TAB 4: PERSONALIZACIÓN DEL REPRODUCTOR -->
+          <section class="player-subpanel" id="playerTabCustomize" data-player-panel="customize" hidden>
+            <div class="apple-card customize-card">
+              <div class="customize-block">
+                <span class="customize-label">Color de acento del reproductor</span>
+                <div class="accent-swatches-row" id="playerAccentSwatches">
+                  <button type="button" class="accent-swatch is-active" data-accent="#ff2d55" style="--swatch:#ff2d55" title="Rosa Music"></button>
+                  <button type="button" class="accent-swatch" data-accent="#0a84ff" style="--swatch:#0a84ff" title="Azul Apple"></button>
+                  <button type="button" class="accent-swatch" data-accent="#af52de" style="--swatch:#af52de" title="Morado"></button>
+                  <button type="button" class="accent-swatch" data-accent="#30d158" style="--swatch:#30d158" title="Verde"></button>
+                  <button type="button" class="accent-swatch" data-accent="#ff9f0a" style="--swatch:#ff9f0a" title="Naranja"></button>
+                  <button type="button" class="accent-swatch" data-accent="#5ac8fa" style="--swatch:#5ac8fa" title="Turquesa"></button>
+                </div>
+              </div>
+
+              <div class="customize-block">
+                <span class="customize-label">Visualizador de audio en tiempo real</span>
+                <div class="scope-pills" id="visualizerStylePills">
+                  <button type="button" class="apple-blue-pill" data-vis-style="bars">Barras</button>
+                  <button type="button" class="apple-secondary-pill" data-vis-style="wave">Onda</button>
+                  <button type="button" class="apple-secondary-pill" data-vis-style="pulse">Pulso</button>
+                  <button type="button" class="apple-secondary-pill" data-vis-style="none">Ninguno</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="inset-group">
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Fondo ambiental con colores de la carátula</span>
+                  <span class="inset-row-sub">Ilumina la tarjeta del reproductor con la portada actual</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="prefAmbientBg" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Reproducción automática continua</span>
+                  <span class="inset-row-sub">Avanza automáticamente a la siguiente pista o video de la cola</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="prefAutoAdvance" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+
+              <label class="inset-row switch-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Mini-reproductor flotante entre pestañas</span>
+                  <span class="inset-row-sub">Controla la música sin salir de Descargar o Ajustes</span>
+                </div>
+                <span class="ios-switch">
+                  <input type="checkbox" id="prefMiniPlayer" checked>
+                  <span class="ios-slider"></span>
+                </span>
+              </label>
+            </div>
+          </section>
+        </section>
+
         <!-- VIEW 3: MOTORES -->
         <section class="app-view" id="viewEngines" data-view-panel="engines" hidden>
           <div class="inset-section">
@@ -520,10 +889,10 @@
 
         <!-- VIEW 4: AJUSTES -->
         <section class="app-view" id="viewSettings" data-view-panel="settings" hidden>
-          <div class="settings-hero">
+            <div class="settings-hero">
             <img src="/static/icon.png" alt="!Download" width="60" height="60">
             <h2>!Download</h2>
-            <p id="modalVersionSub">v1.5.0 · Juan Corporation</p>
+            <p id="modalVersionSub">v1.6.0 · Juan Corporation</p>
           </div>
 
           <div class="inset-section">
@@ -571,19 +940,55 @@
                   <a class="apple-secondary-pill" id="openReleasePageLink" href="#" target="_blank" rel="noopener" hidden>Ver en GitHub</a>
                 </div>
               </div>
+              <div class="inset-row" id="iosSourceRow">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Fuente automática iOS (SideStore / AltStore)</span>
+                  <code class="path-code" id="sideStoreSourceUrl">https://github.com/juanpqsi279-lgtm/Download/releases/latest/download/altstore-source.json</code>
+                </div>
+                <div class="settings-row-actions">
+                  <button type="button" class="apple-secondary-pill" id="copySideStoreUrlBtn">Copiar URL</button>
+                  <a class="apple-blue-pill" id="openSideStoreBtn" href="sidestore://source?url=https%3A%2F%2Fgithub.com%2Fjuanpqsi279-lgtm%2FDownload%2Freleases%2Flatest%2Fdownload%2Faltstore-source.json">Añadir</a>
+                </div>
+              </div>
             </div>
           </div>
         </section>
       </main>
+
+      <!-- Floating Liquid Glass Mini-Player -->
+      <div class="mini-player-bar" id="miniPlayer" hidden>
+        <div class="mini-player-progress" id="miniPlayerProgress"></div>
+        <button type="button" class="mini-player-main" id="miniPlayerOpenBtn">
+          <img class="mini-player-thumb" id="miniPlayerThumb" alt="" hidden>
+          <span class="mini-player-fallback" id="miniPlayerFallback" aria-hidden="true">♪</span>
+          <div class="mini-player-copy">
+            <strong id="miniPlayerTitle">Sin reproducción</strong>
+            <span id="miniPlayerSub">!Download Reproductor</span>
+          </div>
+        </button>
+        <div class="mini-player-controls">
+          <button type="button" class="mini-player-btn" id="miniPlayerPlayBtn" aria-label="Reproducir o pausar">▶</button>
+          <button type="button" class="mini-player-btn" id="miniPlayerNextBtn" aria-label="Siguiente">⏭</button>
+        </div>
+      </div>
     </div>
 
-    <!-- Mobile iOS 27 Floating Liquid Glass 3-Tab Capsule -->
+    <!-- Mobile iOS 27 Floating Liquid Glass 4-Tab Capsule -->
     <nav class="ios-tab-capsule" id="mobileTabCapsule" aria-label="Navegación rápida">
       <button type="button" class="capsule-tab is-active" data-view="download">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 4v11m-4.5-3.5L12 16l4.5-4.5M5 19h14" />
         </svg>
         <span>Descargar</span>
+      </button>
+
+      <button type="button" class="capsule-tab" data-view="player">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 18V5l12-2v13" />
+          <circle cx="6" cy="18" r="3" />
+          <circle cx="18" cy="16" r="3" />
+        </svg>
+        <span>Reproductor</span>
       </button>
 
       <button type="button" class="capsule-tab" data-view="activity">
@@ -606,6 +1011,77 @@
     </nav>
   </div>
 
+  <!-- Metadata Tagger Sheet Modal (Manual & Auto) -->
+  <div class="apple-modal-backdrop" id="metadataModal" hidden>
+    <div class="apple-modal-sheet apple-card spring-reveal" role="dialog" aria-modal="true" aria-labelledby="metaModalTitle">
+      <div class="modal-sheet-head">
+        <div>
+          <h3 id="metaModalTitle">Editor de metadatos y carátula</h3>
+          <p class="modal-sheet-sub" id="metaTargetFileName">Selecciona o edita cualquier canción</p>
+        </div>
+        <button type="button" class="sheet-circle-btn modal-close-btn" id="closeMetadataModalBtn" aria-label="Cerrar editor">✕</button>
+      </div>
+
+      <div class="meta-auto-box">
+        <label class="customize-label" for="metaAutoQuery">Búsqueda automática (iTunes / carátula HD)</label>
+        <div class="meta-auto-row">
+          <input type="text" id="metaAutoQuery" class="apple-text-input" placeholder="Nombre de canción y artista...">
+          <button type="button" class="apple-blue-pill" id="metaAutoSearchBtn">Buscar auto</button>
+        </div>
+        <div class="meta-auto-results" id="metaAutoResults" hidden></div>
+      </div>
+
+      <div class="meta-manual-grid">
+        <div class="meta-cover-col">
+          <div class="meta-cover-box">
+            <img id="metaCoverPreview" alt="Vista previa de carátula" hidden>
+            <span id="metaCoverEmpty">Sin carátula</span>
+          </div>
+          <label class="apple-secondary-pill meta-upload-label" for="metaCoverFileInput">Subir imagen</label>
+          <input type="file" id="metaCoverFileInput" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+
+        <div class="meta-fields-col">
+          <label class="meta-field"><span>Título</span><input type="text" id="metaTitle" class="apple-text-input"></label>
+          <label class="meta-field"><span>Artista</span><input type="text" id="metaArtist" class="apple-text-input"></label>
+          <label class="meta-field"><span>Álbum</span><input type="text" id="metaAlbum" class="apple-text-input"></label>
+          <div class="meta-fields-split">
+            <label class="meta-field"><span>Año</span><input type="text" id="metaYear" class="apple-text-input" maxlength="10"></label>
+            <label class="meta-field"><span>Pista</span><input type="text" id="metaTrack" class="apple-text-input" maxlength="12" placeholder="1/12"></label>
+          </div>
+          <label class="meta-field"><span>Género</span><input type="text" id="metaGenre" class="apple-text-input"></label>
+          <label class="meta-field"><span>URL de carátula (opcional)</span><input type="url" id="metaCoverUrl" class="apple-text-input" placeholder="https://..."></label>
+        </div>
+      </div>
+
+      <div class="meta-status-msg" id="metaStatusMsg" hidden></div>
+
+      <div class="modal-sheet-foot">
+        <button type="button" class="apple-secondary-pill" id="metaPickOtherFileBtn">Elegir otra canción</button>
+        <button type="button" class="apple-primary-cta compact-cta" id="metaApplyBtn">Aplicar metadatos al archivo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add-to-Playlist Picker Modal -->
+  <div class="apple-modal-backdrop" id="addToPlaylistModal" hidden>
+    <div class="apple-modal-sheet apple-card spring-reveal modal-compact" role="dialog" aria-modal="true" aria-labelledby="addToPlTitle">
+      <div class="modal-sheet-head">
+        <div>
+          <h3 id="addToPlTitle">Agregar a lista de reproducción</h3>
+          <p class="modal-sheet-sub" id="addToPlTrackName"></p>
+        </div>
+        <button type="button" class="sheet-circle-btn modal-close-btn" id="closeAddToPlModalBtn" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="inset-group" id="addToPlList"></div>
+      <form class="meta-auto-row" id="quickAddPlaylistForm">
+        <input type="text" id="quickAddPlName" class="apple-text-input" placeholder="Nueva lista rápida..." maxlength="80">
+        <button type="submit" class="apple-blue-pill">Crear y agregar</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/player.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>

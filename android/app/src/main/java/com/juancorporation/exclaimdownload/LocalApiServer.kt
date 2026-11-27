@@ -28,6 +28,7 @@ class LocalApiServer(
     private val engine: DownloadManagerEngine,
 ) {
     private val prefs = app.getSharedPreferences("exclaim_download_prefs", Context.MODE_PRIVATE)
+    private val library = MediaLibraryManager(app)
     private val clientPool = Executors.newCachedThreadPool()
     private val serverSocket = ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"))
     @Volatile private var running = true
@@ -79,15 +80,49 @@ class LocalApiServer(
                 }
             }
 
-            val contentLength = headers["content-length"]?.toIntOrNull()?.coerceIn(0, 1_048_576) ?: 0
-            val bodyBytes = if (contentLength > 0) readExactBytes(input, contentLength) else ByteArray(0)
-
             val queryIdx = rawTarget.indexOf('?')
             val path = if (queryIdx >= 0) rawTarget.substring(0, queryIdx) else rawTarget
             val query = if (queryIdx >= 0) rawTarget.substring(queryIdx + 1) else ""
 
+            if (method == "POST" && path == "/api/library/upload") {
+                val rawLen = headers["content-length"]?.toLongOrNull() ?: 0L
+                val maxUpload = 250L * 1024L * 1024L
+                if (rawLen <= 0L || rawLen > maxUpload) {
+                    sendJson(output, 400, JSONObject().put("detail", "Tamaño de archivo no permitido."))
+                    return
+                }
+                val contentType = headers["content-type"].orEmpty()
+                if (contentType.contains("multipart/form-data", ignoreCase = true)) {
+                    val boundary = contentType.substringAfter("boundary=", "").trim().trim('"')
+                    val uploadData = readExactBytes(input, rawLen.toInt())
+                    val extracted = extractMultipartFile(uploadData, boundary)
+                    if (extracted == null) {
+                        sendJson(output, 400, JSONObject().put("detail", "No se recibió el archivo multipart."))
+                        return
+                    }
+                    try {
+                        val saved = library.saveImportedFile(extracted.first, extracted.second.inputStream(), extracted.second.size.toLong())
+                        sendJson(output, 200, JSONObject().put("item", saved))
+                    } catch (exc: Exception) {
+                        sendJson(output, 400, JSONObject().put("detail", exc.message ?: "Error al importar archivo."))
+                    }
+                } else {
+                    val rawName = URLDecoder.decode(headers["x-filename"] ?: "pista.mp3", "UTF-8")
+                    try {
+                        val saved = library.saveImportedFile(rawName, input, rawLen)
+                        sendJson(output, 200, JSONObject().put("item", saved))
+                    } catch (exc: Exception) {
+                        sendJson(output, 400, JSONObject().put("detail", exc.message ?: "Error al importar archivo."))
+                    }
+                }
+                return
+            }
+
+            val contentLength = headers["content-length"]?.toIntOrNull()?.coerceIn(0, 8 * 1024 * 1024) ?: 0
+            val bodyBytes = if (contentLength > 0) readExactBytes(input, contentLength) else ByteArray(0)
+
             try {
-                route(method, path, query, bodyBytes, sock, output)
+                route(method, path, query, headers, bodyBytes, sock, output)
             } catch (exc: Exception) {
                 sendJson(output, 500, JSONObject().put("detail", exc.message ?: "Error interno del servidor."))
             }
@@ -98,6 +133,7 @@ class LocalApiServer(
         method: String,
         path: String,
         query: String,
+        headers: Map<String, String>,
         bodyBytes: ByteArray,
         socket: Socket,
         output: OutputStream,
@@ -331,6 +367,100 @@ class LocalApiServer(
             return
         }
 
+        if (method == "GET" && path == "/api/library/files") {
+            sendJson(output, 200, JSONObject().put("items", library.scanLibrary()).put("download_dir", "Download/!Download"))
+            return
+        }
+
+        if (method == "GET" && path == "/api/library/stream") {
+            val targetPath = parseQueryParam(query, "path") ?: ""
+            try {
+                library.streamMedia(targetPath, headers["range"], output)
+            } catch (_: java.io.FileNotFoundException) {
+                sendJson(output, 404, JSONObject().put("detail", "Archivo no encontrado."))
+            } catch (exc: Exception) {
+                sendJson(output, 500, JSONObject().put("detail", exc.message ?: "Error al reproducir."))
+            }
+            return
+        }
+
+        if (method == "GET" && path == "/api/library/cover") {
+            val targetPath = parseQueryParam(query, "path") ?: ""
+            val cover = library.extractCoverBytes(targetPath)
+            if (cover == null) {
+                sendJson(output, 404, JSONObject().put("detail", "Sin carátula embebida."))
+            } else {
+                sendBytes(output, 200, cover.second, cover.first, mapOf("Cache-Control" to "no-cache"))
+            }
+            return
+        }
+
+        if (method == "POST" && path == "/api/library/metadata/auto") {
+            val req = JSONObject(bodyBytes.toString(StandardCharsets.UTF_8))
+            val q = req.optString("query", "")
+            val limit = req.optInt("limit", 6)
+            try {
+                sendJson(output, 200, JSONObject().put("results", library.lookupMetadataOnline(q, limit)))
+            } catch (exc: Exception) {
+                sendJson(output, 502, JSONObject().put("detail", "No se pudo consultar metadatos: ${exc.message}"))
+            }
+            return
+        }
+
+        if (method == "POST" && path == "/api/library/metadata/apply") {
+            val req = JSONObject(bodyBytes.toString(StandardCharsets.UTF_8))
+            try {
+                val updated = library.applyMetadata(req)
+                sendJson(output, 200, JSONObject().put("item", updated))
+            } catch (exc: IllegalArgumentException) {
+                sendJson(output, 400, JSONObject().put("detail", exc.message))
+            } catch (exc: Exception) {
+                sendJson(output, 500, JSONObject().put("detail", exc.message ?: "No se pudieron aplicar metadatos."))
+            }
+            return
+        }
+
+        if (method == "GET" && path == "/api/library/playlists") {
+            sendJson(output, 200, JSONObject().put("playlists", library.listPlaylists()))
+            return
+        }
+
+        if (method == "POST" && path == "/api/library/playlists") {
+            val req = JSONObject(bodyBytes.toString(StandardCharsets.UTF_8))
+            try {
+                sendJson(output, 200, JSONObject().put("playlist", library.createPlaylist(req)))
+            } catch (exc: IllegalArgumentException) {
+                sendJson(output, 400, JSONObject().put("detail", exc.message))
+            }
+            return
+        }
+
+        if (method == "PUT" && path.startsWith("/api/library/playlists/")) {
+            val id = path.removePrefix("/api/library/playlists/")
+            val req = JSONObject(bodyBytes.toString(StandardCharsets.UTF_8))
+            try {
+                val updated = library.updatePlaylist(id, req)
+                if (updated == null) {
+                    sendJson(output, 404, JSONObject().put("detail", "Lista no encontrada."))
+                } else {
+                    sendJson(output, 200, JSONObject().put("playlist", updated))
+                }
+            } catch (exc: IllegalArgumentException) {
+                sendJson(output, 400, JSONObject().put("detail", exc.message))
+            }
+            return
+        }
+
+        if (method == "DELETE" && path.startsWith("/api/library/playlists/")) {
+            val id = path.removePrefix("/api/library/playlists/")
+            if (library.deletePlaylist(id)) {
+                sendJson(output, 200, JSONObject().put("deleted", true))
+            } else {
+                sendJson(output, 404, JSONObject().put("detail", "Lista no encontrada."))
+            }
+            return
+        }
+
         sendJson(output, 404, JSONObject().put("detail", "Ruta no encontrada."))
     }
 
@@ -522,6 +652,42 @@ class LocalApiServer(
             }
         }
         return null
+    }
+
+    private fun extractMultipartFile(data: ByteArray, boundary: String): Pair<String, ByteArray>? {
+        if (boundary.isBlank()) return null
+        val marker = "--$boundary".toByteArray(StandardCharsets.US_ASCII)
+        val sep = "\r\n\r\n".toByteArray(StandardCharsets.US_ASCII)
+        var pos = indexOfBytes(data, marker, 0)
+        while (pos >= 0) {
+            val headerStart = pos + marker.size + 2
+            if (headerStart >= data.size) break
+            val headerEnd = indexOfBytes(data, sep, headerStart)
+            if (headerEnd < 0) break
+            val headerStr = String(data, headerStart, headerEnd - headerStart, StandardCharsets.UTF_8)
+            val bodyStart = headerEnd + sep.size
+            val nextMarker = indexOfBytes(data, marker, bodyStart)
+            if (nextMarker < 0) break
+            val bodyEnd = (nextMarker - 2).coerceAtLeast(bodyStart)
+            val match = Regex("""filename="([^"]+)"""").find(headerStr)
+            if (match != null) {
+                val name = match.groupValues[1]
+                return name to data.copyOfRange(bodyStart, bodyEnd)
+            }
+            pos = nextMarker
+        }
+        return null
+    }
+
+    private fun indexOfBytes(haystack: ByteArray, needle: ByteArray, fromIndex: Int): Int {
+        if (needle.isEmpty()) return fromIndex
+        outer@ for (i in fromIndex..(haystack.size - needle.size)) {
+            for (j in needle.indices) {
+                if (haystack[i + j] != needle[j]) continue@outer
+            }
+            return i
+        }
+        return -1
     }
 
     private fun readLineAscii(input: InputStream): String? {

@@ -1,0 +1,40 @@
+{
+  "name": "!Download · Juan Corporation",
+  "subtitle": "Descargador multimedia y reproductor Liquid Glass",
+  "description": "Fuente oficial de !Download para SideStore y AltStore. Descarga videos hasta 8K, música en alta calidad, playlists completas y reproduce tus archivos con ecualizador de 10 bandas y editor de metadatos.",
+  "iconURL": "https://raw.githubusercontent.com/juanpqsi279-lgtm/Download/main/static/icon.png",
+  "website": "https://github.com/juanpqsi279-lgtm/Download",
+  "tintColor": "#0A84FF",
+  "featuredApps": [
+    "com.juancorporation.exclaimdownload"
+  ],
+  "apps": [
+    {
+      "name": "!Download",
+      "bundleIdentifier": "com.juancorporation.exclaimdownload",
+      "developerName": "Juan Corporation",
+      "subtitle": "Video, audio, playlists y reproductor con EQ",
+      "localizedDescription": "Descarga video hasta 8K o extrae audio en M4A/MP3 desde más de 1,000 sitios con estética Apple Liquid Glass. Incluye gestor de playlists, reproductor nativo de audio y video con ecualizador de 10 bandas, guía de ecualización y editor manual o automático de metadatos y carátulas.",
+      "iconURL": "https://raw.githubusercontent.com/juanpqsi279-lgtm/Download/main/static/icon.png",
+      "tintColor": "#0A84FF",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "1.5.0",
+          "date": "2026-11-27T03:42:03Z",
+          "localizedDescription": "!Download v1.5.0: descarga de video/audio, playlists, reproductor nativo con ecualizador de 10 bandas, editor de metadatos y listas personalizadas.",
+          "downloadURL": "https://github.com/juanpqsi279-lgtm/Download/releases/download/v1.5.0/Download-v1.5.0-ios.ipa",
+          "size": 25520720,
+          "minOSVersion": "15.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSPhotoLibraryAddUsageDescription": "!Download puede guardar tus videos o audios descargados en tu fototeca o Archivos cuando los compartes."
+        }
+      }
+    }
+  ],
+  "news": []
+}

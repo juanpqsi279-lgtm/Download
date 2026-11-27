@@ -125,3 +125,36 @@ class OpenPathRequest(BaseModel):
 class AppUpdateRequest(BaseModel):
     asset_url: str = Field(..., min_length=1, max_length=2048)
     asset_name: str = Field(..., min_length=1, max_length=256)
+
+
+class LibraryRegisterRequest(BaseModel):
+    paths: list[str] = Field(..., min_length=1, max_length=200)
+
+
+class MetadataLookupRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=300)
+    limit: int = Field(default=6, ge=1, le=12)
+
+
+class MetadataApplyRequest(BaseModel):
+    path: str = Field(..., min_length=1, max_length=1024)
+    title: str | None = Field(default=None, max_length=300)
+    artist: str | None = Field(default=None, max_length=300)
+    album: str | None = Field(default=None, max_length=300)
+    year: str | None = Field(default=None, max_length=32)
+    genre: str | None = Field(default=None, max_length=120)
+    track: str | None = Field(default=None, max_length=32)
+    cover_url: str | None = Field(default=None, max_length=2048)
+    cover_base64: str | None = Field(default=None, max_length=8_000_000)
+
+
+class PlaylistCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    kind: Literal["audio", "video", "mixed"] = "mixed"
+    items: list[str] = Field(default_factory=list, max_length=500)
+
+
+class PlaylistUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    kind: Literal["audio", "video", "mixed"] | None = None
+    items: list[str] | None = Field(default=None, max_length=500)

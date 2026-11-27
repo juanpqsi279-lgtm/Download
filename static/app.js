@@ -6,6 +6,7 @@
 
   const VIEW_TITLES = {
     download: "Descargar",
+    player: "Reproductor",
     activity: "Actividad",
     engines: "Motores",
     settings: "Ajustes",
@@ -133,9 +134,13 @@
     progressSize: document.getElementById("progressSize"),
     cancelJobBtn: document.getElementById("cancelJobBtn"),
     openSavedFolderBtn: document.getElementById("openSavedFolderBtn"),
+    playSavedFileBtn: document.getElementById("playSavedFileBtn"),
     openSavedFileBtn: document.getElementById("openSavedFileBtn"),
     saveFileBtn: document.getElementById("saveFileBtn"),
     savedPathLine: document.getElementById("savedPathLine"),
+    copySideStoreUrlBtn: document.getElementById("copySideStoreUrlBtn"),
+    sideStoreSourceUrl: document.getElementById("sideStoreSourceUrl"),
+    openSideStoreBtn: document.getElementById("openSideStoreBtn"),
 
     historySection: document.getElementById("historySection"),
     historyEmptyState: document.getElementById("historyEmptyState"),
@@ -214,8 +219,17 @@
     if ((view === "engines" || view === "settings") && !state.appInfo) {
       loadAppInfo();
     }
+    if (window.ExclaimPlayer) {
+      if (typeof window.ExclaimPlayer.onViewChanged === "function") {
+        window.ExclaimPlayer.onViewChanged(view);
+      }
+      if (view === "player" && typeof window.ExclaimPlayer.onViewActivated === "function") {
+        window.ExclaimPlayer.onViewActivated();
+      }
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  window.__setActiveView = setActiveView;
 
   function getCurrentTheme() {
     return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
@@ -354,7 +368,7 @@
       const info = await resp.json();
       state.appInfo = info;
 
-      const version = info.version || "1.5.0";
+      const version = info.version || "1.6.0";
       const developer = info.developer || "Juan Corporation";
       els.footerCredit.textContent = `${info.name || "!Download"} v${version} · ${developer}`;
       els.modalVersionSub.textContent = `v${version} · ${developer}`;
@@ -1271,6 +1285,9 @@
 
     if (job.status === "completed") {
       closeJobListeners();
+      if (window.ExclaimPlayer && typeof window.ExclaimPlayer.refreshLibrary === "function") {
+        window.ExclaimPlayer.refreshLibrary();
+      }
       if (!job.saved_path && !isDesktopMode() && !state.autoDownloadedJobs.has(job.job_id)) {
         state.autoDownloadedJobs.add(job.job_id);
         triggerBrowserDownload(job.job_id);
@@ -1340,6 +1357,7 @@
     els.cancelJobBtn.disabled = !isActive;
 
     els.openSavedFolderBtn.hidden = true;
+    els.playSavedFileBtn.hidden = true;
     els.openSavedFileBtn.hidden = true;
     els.saveFileBtn.hidden = true;
     els.savedPathLine.hidden = true;
@@ -1349,6 +1367,12 @@
         els.openSavedFolderBtn.textContent = job.is_playlist ? "Abrir carpeta" : "Mostrar en carpeta";
         els.openSavedFolderBtn.hidden = false;
         els.openSavedFolderBtn.onclick = () => openSystemPath("/api/system/open-folder", job.saved_path);
+        els.playSavedFileBtn.hidden = Boolean(job.is_playlist);
+        els.playSavedFileBtn.onclick = () => {
+          if (window.ExclaimPlayer && typeof window.ExclaimPlayer.playPath === "function") {
+            window.ExclaimPlayer.playPath(job.saved_path);
+          }
+        };
         els.openSavedFileBtn.hidden = Boolean(job.is_playlist);
         els.openSavedFileBtn.onclick = () => openSystemPath("/api/system/open-file", job.saved_path);
         els.savedPathLine.textContent = `Guardado en: ${job.saved_path}`;
@@ -1518,6 +1542,18 @@
 
       if (item.status === "completed") {
         if (item.saved_path && isDesktopMode()) {
+          if (!item.saved_path.endsWith(item.title || "") || /\.[a-z0-9]{2,5}$/i.test(item.saved_path)) {
+            const playHistBtn = document.createElement("button");
+            playHistBtn.type = "button";
+            playHistBtn.className = "apple-blue-pill";
+            playHistBtn.textContent = "Reproducir";
+            playHistBtn.addEventListener("click", () => {
+              if (window.ExclaimPlayer && typeof window.ExclaimPlayer.playPath === "function") {
+                window.ExclaimPlayer.playPath(item.saved_path);
+              }
+            });
+            actions.appendChild(playHistBtn);
+          }
           const folderBtn = document.createElement("button");
           folderBtn.type = "button";
           folderBtn.className = "apple-secondary-pill";
@@ -1844,6 +1880,21 @@
       els.installAppUpdateBtn.textContent = "Instalar actualización";
     }
   });
+
+  els.openSavedFileBtn.addEventListener("click", () => {});
+
+  if (els.copySideStoreUrlBtn && els.sideStoreSourceUrl) {
+    els.copySideStoreUrlBtn.addEventListener("click", async () => {
+      const urlText = els.sideStoreSourceUrl.textContent.trim();
+      try {
+        await navigator.clipboard.writeText(urlText);
+        els.copySideStoreUrlBtn.textContent = "¡Copiada!";
+        setTimeout(() => { els.copySideStoreUrlBtn.textContent = "Copiar URL"; }, 1800);
+      } catch {
+        // Ignore clipboard fallback
+      }
+    });
+  }
 
   window.addEventListener("pywebviewready", () => {
     applyTheme(getCurrentTheme(), false);

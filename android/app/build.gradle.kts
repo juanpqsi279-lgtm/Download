@@ -13,8 +13,8 @@ android {
         applicationId = "com.juancorporation.exclaimdownload"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10500
-        versionName = "1.5.0"
+        versionCode = 10600
+        versionName = "1.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -81,7 +81,7 @@ android {
 
 val syncWebAssets by tasks.registering(Copy::class) {
     from(rootProject.file("../static")) {
-        include("index.html", "styles.css", "app.js", "icon.png")
+        include("index.html", "styles.css", "app.js", "player.js", "icon.png")
     }
     into(layout.projectDirectory.dir("src/main/assets/static"))
 }
