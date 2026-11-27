@@ -336,6 +336,29 @@
               </div>
             </div>
 
+            <!-- Playlist vs Single Video Toggle Bar (when URL has both v= and list=) -->
+            <div class="inset-group playlist-scope-bar" id="playlistScopeBar" hidden>
+              <div class="inset-row">
+                <div class="inset-row-main">
+                  <span class="inset-row-title">Enlace con lista incluida</span>
+                  <span class="inset-row-sub">Elige si descargar solo este elemento o la playlist completa</span>
+                </div>
+                <div class="scope-pills">
+                  <button type="button" class="apple-secondary-pill" id="scopeSingleBtn">Solo este video</button>
+                  <button type="button" class="apple-blue-pill" id="scopePlaylistBtn">Ver playlist</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Playlist Multi-Select List -->
+            <div class="inset-section" id="playlistSection" hidden>
+              <div class="inset-section-header">
+                <span>Elementos de la lista · <strong id="playlistSelectedCount">0/0</strong></span>
+                <button type="button" class="apple-text-btn" id="toggleAllPlaylistBtn">Deseleccionar todo</button>
+              </div>
+              <div class="inset-group playlist-group" id="playlistEntriesList"></div>
+            </div>
+
             <!-- iOS Segmented Control -->
             <div class="segmented-control" id="modeSegmented" role="tablist" aria-label="Tipo de descarga">
               <span class="segmented-thumb" id="segmentedThumb" aria-hidden="true"></span>
@@ -500,7 +523,7 @@
           <div class="settings-hero">
             <img src="/static/icon.png" alt="!Download" width="60" height="60">
             <h2>!Download</h2>
-            <p id="modalVersionSub">v1.4.0 · Juan Corporation</p>
+            <p id="modalVersionSub">v1.5.0 · Juan Corporation</p>
           </div>
 
           <div class="inset-section">

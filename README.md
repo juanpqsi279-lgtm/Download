@@ -10,37 +10,37 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Windows (10 / 11)
 
-- **Opción 1 — Instalador (`Download-Setup-v1.4.0.exe`):**
-  1. Descarga **`Download-Setup-v1.4.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+- **Opción 1 — Instalador (`Download-Setup-v1.5.0.exe`):**
+  1. Descarga **`Download-Setup-v1.5.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
   2. Ejecuta el instalador para crear los accesos directos y activar auto-actualizaciones.
-- **Opción 2 — Portable (`Download-Portable-v1.4.0.zip`):**
-  1. Descarga y descomprime **`Download-Portable-v1.4.0.zip`**.
+- **Opción 2 — Portable (`Download-Portable-v1.5.0.zip`):**
+  1. Descarga y descomprime **`Download-Portable-v1.5.0.zip`**.
   2. Abre **`!Download.exe`**.
 - **Opción 3 — Ejecutar desde código fuente (recomendado si Windows bloquea el `.exe`):**
   1. Clona o descarga este repositorio.
   2. Haz doble clic en **[`!Download-Desktop.bat`](!Download-Desktop.bat)** para abrir la ventana nativa de escritorio, o en **[`start.bat`](start.bat)** / **[`start.ps1`](start.ps1)** para iniciar el servidor local en `http://127.0.0.1:8000`.
   3. En el primer arranque, [scripts/bootstrap.ps1](scripts/bootstrap.ps1) instala automáticamente `uv`, Python 3.13, dependencias, `FFmpeg`, `FFprobe` y `Deno`.
 
-> **Importante sobre Error 4551 / Windows 11 Smart App Control:** si tu PC tiene activo *Control inteligente de aplicaciones*, Windows puede bloquear archivos `.exe` que aún no cuenten con firma digital (*Authenticode*). En ese caso usa **`!Download-Desktop.bat`** (corre sobre Python firmado oficialmente) mientras se completa la firma con SignPath. Consulta [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+> **Importante sobre Error 4551 / Windows 11 Smart App Control:** si tu PC tiene activo *Control inteligente de aplicaciones*, Windows puede bloquear archivos `.exe` sin firma digital (*Authenticode*). En ese equipo usa **[`!Download-Desktop.bat`](!Download-Desktop.bat)** (corre sobre Python firmado oficialmente) para abrir exactamente la misma ventana nativa de escritorio.
 
 ---
 
 ### Linux (`x86_64` / `amd64`)
 
-- **Opción 1 — AppImage universal (`Download-v1.4.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
+- **Opción 1 — AppImage universal (`Download-v1.5.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
   ```bash
-  chmod +x Download-v1.4.0-linux-x86_64.AppImage
-  ./Download-v1.4.0-linux-x86_64.AppImage
+  chmod +x Download-v1.5.0-linux-x86_64.AppImage
+  ./Download-v1.5.0-linux-x86_64.AppImage
   ```
-  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.4.0-linux-x86_64.AppImage --appimage-extract-and-run`.
-- **Opción 2 — Paquete `.deb` (`Download-v1.4.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
+  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.5.0-linux-x86_64.AppImage --appimage-extract-and-run`.
+- **Opción 2 — Paquete `.deb` (`Download-v1.5.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
   ```bash
-  sudo apt install ./Download-v1.4.0-linux-amd64.deb
+  sudo apt install ./Download-v1.5.0-linux-amd64.deb
   ```
   Luego ábrelo desde tu menú de aplicaciones o ejecutando `exclaim-download` en terminal.
-- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.4.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
+- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.5.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
   ```bash
-  tar -xzf Download-Portable-v1.4.0-linux-x86_64.tar.gz
+  tar -xzf Download-Portable-v1.5.0-linux-x86_64.tar.gz
   ./exclaim-download/exclaim-download
   ```
   Si deseas agregar acceso directo al menú del sistema, ejecuta `./exclaim-download/install-desktop.sh`.
@@ -56,8 +56,8 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Android (`.apk` todo incluido)
 
-- **`Download-v1.4.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
-- **`Download-v1.4.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+- **`Download-v1.5.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.5.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
 
 **Pasos de instalación:**
 1. Descarga el `.apk` desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest) en tu teléfono.
@@ -67,14 +67,14 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ---
 
-### iPhone / iPad (`Download-v1.4.0-ios.ipa` + Safari PWA)
+### iPhone / iPad (`Download-v1.5.0-ios.ipa` + Safari PWA)
 
 En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID (la primera vez requiere conectar tu iPhone a una PC o Mac). Tus descargas se guardan en la app **Archivos → En mi iPhone → `!Download`** (con botón para compartir o guardar en Fotos).
 
 - **Opción 1 — [Sideloadly](https://sideloadly.io/) *(la más rápida desde PC/Mac)*:**
   1. Descarga e instala Sideloadly desde su sitio oficial: **https://sideloadly.io/**.
   2. **Solo en Windows:** instala las versiones **web** (NO las de Microsoft Store) de **[iTunes 64-bit](https://www.apple.com/itunes/win64)** ([32-bit](https://www.apple.com/itunes/win32)) e **[iCloud para Windows](https://support.apple.com/HT204283)** (también enlazados dentro de [sideloadly.io](https://sideloadly.io/)). Reinicia la PC si es la primera vez.
-  3. Descarga **`Download-v1.4.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+  3. Descarga **`Download-v1.5.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
   4. Conecta tu iPhone por cable USB de datos, desbloquéalo y pulsa **Confiar** si te lo pregunta.
   5. Arrastra el `.ipa` a Sideloadly, escribe tu Apple ID y pulsa **Start**.
   6. En tu iPhone (solo la primera vez):
@@ -83,24 +83,26 @@ En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID
   > Con Apple ID gratuito la firma caduca cada 7 días; Sideloadly puede renovarla automáticamente por Wi-Fi mientras tu PC esté encendida.
 
 - **Opción 2 — [SideStore](https://sidestore.io/) *(PC solo 1 vez; luego instalas y renuevas desde el mismo iPhone)*:**
-  Instala SideStore una vez siguiendo la guía oficial en **https://sidestore.io/**; después podrás abrir `Download-v1.4.0-ios.ipa` y renovarlo directo en tu iPhone sin PC.
+  Instala SideStore una vez siguiendo la guía oficial en **https://sidestore.io/**; después podrás abrir `Download-v1.5.0-ios.ipa` y renovarlo directo en tu iPhone sin PC.
 
 - **Opción 3 — [AltStore](https://altstore.io/) *(PC/Mac + iPhone por Wi-Fi)*:**
   Instala AltServer en tu PC/Mac desde **https://altstore.io/** e instala el `.ipa` desde AltStore en tu iPhone.
 
 - **Opción 4 — [TrollStore](https://github.com/opa334/TrollStore) *(solo versiones de iOS compatibles, sin caducidad de 7 días)*:**
-  Permite instalar `Download-v1.4.0-ios.ipa` de forma permanente desde **https://github.com/opa334/TrollStore**.
+  Permite instalar `Download-v1.5.0-ios.ipa` de forma permanente desde **https://github.com/opa334/TrollStore**.
 
 - **Opción 5 — Sin instalar `.ipa` (PWA en Safari):**
   Ejecuta `!Download` en tu PC o Mac dentro de la misma red Wi-Fi, abre la dirección en **Safari** desde tu iPhone y pulsa **Compartir → Añadir a pantalla de inicio**.
 
 ---
 
-## Firma digital y seguridad (Code Signing)
+## Descarga de playlists completas
 
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+`!Download` detecta enlaces de listas de reproducción (**YouTube, YouTube Music, SoundCloud, Bandcamp**, etc.):
 
-Consulta todos los detalles sobre los binarios firmados y el proceso de verificación en [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md).
+- Si pegas un video que incluye `?list=...`, puedes elegir entre analizar **Solo este video** o **Lista completa**.
+- En la vista de playlist puedes **marcar o desmarcar** los elementos que quieras descargar y elegir calidad máxima de **video** o formato de **audio** (`MP3`, `M4A`, `Opus`, `FLAC`, `WAV`).
+- En **Windows, Linux, Android e iOS**, los archivos se guardan numerados dentro de una subcarpeta con el nombre de la playlist (`01 - Título`, `02 - Título`...); en modo navegador web se descargan empaquetados en un `.zip`.
 
 ## Sistema de actualizaciones en 2 niveles
 
@@ -153,7 +155,7 @@ cd ios && xcodegen generate
 El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux**, **Android** e **iOS**, verifica `--self-check` y publica todos los archivos automáticamente al subir una etiqueta `v*`:
 
 ```bash
-git tag v1.4.0 && git push origin v1.4.0
+git tag v1.5.0 && git push origin v1.5.0
 ```
 
 ## Licencia

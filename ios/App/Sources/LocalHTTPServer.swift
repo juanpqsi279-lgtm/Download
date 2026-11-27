@@ -186,18 +186,29 @@ final class LocalHTTPServer {
                 sendJson(conn, status: 400, dict: ["detail": error.localizedDescription])
                 return
             }
+            let playlistMode = (req["playlist_mode"] as? String) ?? "auto"
+            let canToggle = MediaParser.urlHasVideoAndList(url)
+            let wantsPlaylist = MediaParser.shouldExtractPlaylist(url, playlistMode: playlistMode)
 
             do {
-                let out = try YTDLP.shared.run([
-                    "--dump-single-json", "--no-playlist", "--playlist-items", "1",
-                    "--skip-download", "--no-warnings", "--socket-timeout", "25",
-                    url,
-                ])
+                var args = ["--dump-single-json"]
+                if wantsPlaylist {
+                    args += ["--flat-playlist", "--yes-playlist", "--playlist-end", "200", "--ignore-errors"]
+                } else {
+                    args += ["--no-playlist", "--playlist-items", "1"]
+                }
+                args += ["--skip-download", "--no-warnings", "--socket-timeout", "25", url]
+                let out = try YTDLP.shared.run(args)
                 guard out.code == 0 else {
                     sendJson(conn, status: 422, dict: ["detail": MediaParser.translateYtDlpError(out.errorMessage ?? out.stderr)])
                     return
                 }
-                let info = try MediaParser.parseMediaInfoJson(rawUrl: url, rawJson: out.stdout)
+                let info = try MediaParser.parseMediaInfoJson(
+                    rawUrl: url,
+                    rawJson: out.stdout,
+                    canTogglePlaylist: canToggle,
+                    playlistMode: playlistMode
+                )
                 sendJson(conn, status: 200, dict: info)
             } catch {
                 sendJson(conn, status: 422, dict: ["detail": MediaParser.translateYtDlpError(error.localizedDescription)])
@@ -222,6 +233,11 @@ final class LocalHTTPServer {
             }
 
             let height = (req["height"] as? Int) ?? (req["height"] as? NSNumber)?.intValue
+            let isPlaylist = (req["is_playlist"] as? Bool) ?? false
+            let rawItems = req["playlist_items"] as? [Any]
+            let playlistItems: [Int]? = rawItems.map { arr in
+                Array(Set(arr.compactMap { ($0 as? Int) ?? ($0 as? NSNumber)?.intValue }.filter { $0 >= 1 && $0 <= 1000 })).sorted()
+            }
             let jobReq = DownloadManagerEngine.JobRequest(
                 url: url,
                 mode: (req["mode"] as? String) ?? "video",
@@ -231,6 +247,8 @@ final class LocalHTTPServer {
                 audioBitrate: (req["audio_bitrate"] as? Int) ?? 192,
                 embedMetadata: (req["embed_metadata"] as? Bool) ?? true,
                 titleHint: (req["title_hint"] as? String),
+                isPlaylist: isPlaylist,
+                playlistItems: playlistItems
             )
             let job = engine.createJob(jobReq)
             sendJson(conn, status: 200, dict: job.toJsonDict())

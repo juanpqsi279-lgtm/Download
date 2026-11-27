@@ -54,51 +54,16 @@ jobs:
           $p = Start-Process -FilePath ".\dist\!Download\!Download.exe" -ArgumentList "--self-check" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "Self-check failed with exit code $($p.ExitCode)" }
 
-      - name: Upload unsigned !Download.exe for SignPath
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        id: upload-unsigned-exe
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-unsigned-exe
-          path: dist/!Download/!Download.exe
-
-      - name: Sign !Download.exe with SignPath
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'download' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          github-artifact-id: ${{ steps.upload-unsigned-exe.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: dist/signpath-exe
-
-      - name: Apply signed !Download.exe
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        shell: pwsh
-        run: |
-          $outDir = "dist\signpath-exe"
-          $zip = Get-ChildItem $outDir -Recurse -Filter "*.zip" | Select-Object -First 1
-          if ($zip) {
-            Expand-Archive -Path $zip.FullName -DestinationPath "$outDir\_extracted" -Force
-          }
-          $signedExe = Get-ChildItem $outDir -Recurse -Filter "*.exe" | Select-Object -First 1
-          if (-not $signedExe) { throw "Signed executable not found in $outDir" }
-          Copy-Item $signedExe.FullName "dist\!Download\!Download.exe" -Force
-          Remove-Item $outDir -Recurse -Force
-
       - name: Build installer and portable archive
         shell: pwsh
         env:
-          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
           WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         run: |
-          $tag = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) { $env:GITHUB_REF_NAME } else { "v1.4.0" }
+          $tag = if ($env:GITHUB_REF_NAME -and $env:GITHUB_REF_NAME.StartsWith("v")) { $env:GITHUB_REF_NAME } else { "v1.5.0" }
           $certPath = $null
           $signtool = $null
-          $useLocalCert = [string]::IsNullOrWhiteSpace($env:SIGNPATH_ORGANIZATION_ID) -and (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64))
+          $useLocalCert = -not [string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_PFX_BASE64)
           if ($useLocalCert) {
             $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
             [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_BASE64))
@@ -119,43 +84,6 @@ jobs:
             Remove-Item $certPath -Force -ErrorAction SilentlyContinue
           }
           Compress-Archive -Path "dist\!Download" -DestinationPath "dist\!Download-Portable-$tag.zip" -Force
-
-      - name: Upload unsigned Windows installer for SignPath
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        id: upload-unsigned-installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-unsigned-installer
-          path: dist/!Download-Setup-*.exe
-
-      - name: Sign Windows installer with SignPath
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        uses: signpath/github-action-submit-signing-request@v3
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'download' }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
-          github-artifact-id: ${{ steps.upload-unsigned-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: dist/signpath-installer
-
-      - name: Apply signed Windows installer
-        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
-        shell: pwsh
-        run: |
-          $outDir = "dist\signpath-installer"
-          $zip = Get-ChildItem $outDir -Recurse -Filter "*.zip" | Select-Object -First 1
-          if ($zip) {
-            Expand-Archive -Path $zip.FullName -DestinationPath "$outDir\_extracted" -Force
-          }
-          $signedInstaller = Get-ChildItem $outDir -Recurse -Filter "*.exe" | Select-Object -First 1
-          $targetInstaller = Get-ChildItem "dist\!Download-Setup-*.exe" | Select-Object -First 1
-          if (-not $signedInstaller -or -not $targetInstaller) {
-            throw "Missing signed installer ($signedInstaller) or target installer ($targetInstaller)"
-          }
-          Copy-Item $signedInstaller.FullName $targetInstaller.FullName -Force
-          Remove-Item $outDir -Recurse -Force
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -231,12 +159,28 @@ jobs:
         run: gradle -p android testDebugUnitTest
 
       - name: Build Android release APKs
-        run: gradle -p android assembleRelease
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            keytool -list -keystore "$RUNNER_TEMP/release.p12" -storetype PKCS12 -storepass "$ANDROID_KEYSTORE_PASSWORD" >/dev/null
+            export KEYSTORE_FILE="$RUNNER_TEMP/release.p12"
+            export KEYSTORE_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+            export KEY_ALIAS="$ANDROID_KEY_ALIAS"
+            export KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
+            echo "Signing Android release APKs with permanent release keystore."
+          fi
+          gradle -p android assembleRelease
+          rm -f "$RUNNER_TEMP/release.p12"
 
       - name: Package Android APK artifacts
         run: |
-          TAG="${GITHUB_REF_NAME:-v1.4.0}"
-          if [[ "$TAG" != v* ]]; then TAG="v1.4.0"; fi
+          TAG="${GITHUB_REF_NAME:-v1.5.0}"
+          if [[ "$TAG" != v* ]]; then TAG="v1.5.0"; fi
           mkdir -p dist
           ARM64_APK=$(find android/app/build/outputs/apk/release -name "*arm64-v8a*.apk" | head -n 1)
           UNIV_APK=$(find android/app/build/outputs/apk/release -name "*universal*.apk" | head -n 1)
@@ -289,8 +233,8 @@ jobs:
 
       - name: Package .ipa archive
         run: |
-          TAG="${GITHUB_REF_NAME:-v1.4.0}"
-          if [[ "$TAG" != v* ]]; then TAG="v1.4.0"; fi
+          TAG="${GITHUB_REF_NAME:-v1.5.0}"
+          if [[ "$TAG" != v* ]]; then TAG="v1.5.0"; fi
           APP_BUNDLE="ios/build/DerivedData/Build/Products/Release-iphoneos/ExclaimDownload.app"
           if [ ! -d "$APP_BUNDLE" ]; then
             echo "Missing ExclaimDownload.app"

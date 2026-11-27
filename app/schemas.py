@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 class AnalyzeRequest(BaseModel):
     url: str = Field(..., min_length=1, max_length=2048)
+    playlist_mode: Literal["auto", "playlist", "single"] = "auto"
 
 
 class VideoOption(BaseModel):
@@ -38,6 +39,17 @@ class AudioBitrateOption(BaseModel):
     estimated_bytes: int | None = None
 
 
+class PlaylistEntryInfo(BaseModel):
+    index: int
+    id: str | None = None
+    title: str
+    duration: int | None = None
+    duration_text: str | None = None
+    uploader: str | None = None
+    thumbnail: str | None = None
+    url: str | None = None
+
+
 class MediaInfoResponse(BaseModel):
     url: str
     title: str
@@ -59,6 +71,11 @@ class MediaInfoResponse(BaseModel):
     source_audio_codec: str | None = None
     subtitle_languages: list[str] = Field(default_factory=list)
     is_live: bool = False
+    is_playlist: bool = False
+    playlist_title: str | None = None
+    playlist_count: int = 0
+    playlist_entries: list[PlaylistEntryInfo] = Field(default_factory=list)
+    can_toggle_playlist: bool = False
 
 
 class DownloadRequest(BaseModel):
@@ -70,6 +87,8 @@ class DownloadRequest(BaseModel):
     audio_bitrate: Literal[96, 128, 192, 256, 320] = 192
     embed_metadata: bool = True
     title_hint: str | None = Field(default=None, max_length=300)
+    is_playlist: bool = False
+    playlist_items: list[int] | None = Field(default=None, max_length=200)
 
 
 class JobStatusResponse(BaseModel):
@@ -89,6 +108,9 @@ class JobStatusResponse(BaseModel):
     quality_label: str
     error: str | None = None
     created_at: float
+    is_playlist: bool = False
+    completed_items: int = 0
+    total_items: int = 0
 
 
 class SettingsUpdateRequest(BaseModel):

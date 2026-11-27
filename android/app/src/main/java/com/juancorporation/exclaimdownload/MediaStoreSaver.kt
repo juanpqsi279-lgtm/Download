@@ -38,17 +38,22 @@ object MediaStoreSaver {
         return MIME_TYPES[ext] ?: "application/octet-stream"
     }
 
-    fun saveToDownloads(context: Context, sourceFile: File): SavedMedia {
+    fun saveToDownloads(context: Context, sourceFile: File, subFolder: String? = null): SavedMedia {
         if (!sourceFile.isFile) {
             throw IOException("El archivo descargado no existe.")
         }
 
         val mimeType = mimeTypeForFile(sourceFile)
         val sizeBytes = sourceFile.length()
+        val cleanSub = subFolder?.trim()?.takeIf { it.isNotEmpty() }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver
-            val relPath = "${Environment.DIRECTORY_DOWNLOADS}/!Download"
+            val relPath = if (cleanSub != null) {
+                "${Environment.DIRECTORY_DOWNLOADS}/!Download/$cleanSub"
+            } else {
+                "${Environment.DIRECTORY_DOWNLOADS}/!Download"
+            }
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, sourceFile.name)
                 put(MediaStore.Downloads.MIME_TYPE, mimeType)
@@ -87,7 +92,11 @@ object MediaStoreSaver {
 
             sourceFile.delete()
             return SavedMedia(
-                displayPath = "Download/!Download/$finalName",
+                displayPath = if (cleanSub != null) {
+                    "Download/!Download/$cleanSub/$finalName"
+                } else {
+                    "Download/!Download/$finalName"
+                },
                 contentUri = uri,
                 mimeType = mimeType,
                 fileName = finalName,
@@ -96,10 +105,11 @@ object MediaStoreSaver {
         }
 
         @Suppress("DEPRECATION")
-        val baseDir = File(
+        val rootDir = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             "!Download",
         )
+        val baseDir = if (cleanSub != null) File(rootDir, cleanSub) else rootDir
         if (!baseDir.exists()) {
             baseDir.mkdirs()
         }

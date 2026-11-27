@@ -24,8 +24,8 @@ targets:
       base:
         PRODUCT_NAME: ExclaimDownload
         PRODUCT_BUNDLE_IDENTIFIER: com.juancorporation.exclaimdownload
-        MARKETING_VERSION: "1.4.0"
-        CURRENT_PROJECT_VERSION: "10400"
+        MARKETING_VERSION: "1.5.0"
+        CURRENT_PROJECT_VERSION: "10500"
         INFOPLIST_FILE: App/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.9"

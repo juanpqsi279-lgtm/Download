@@ -105,4 +105,33 @@ class MediaParserTest {
         assertNotNull(fallbackPick)
         assertEquals("Download-v1.2.0-android-universal.apk", fallbackPick!!.getString("name"))
     }
+
+    @Test
+    fun `playlist detection and parsing preserve one-based indices`() {
+        val videoWithMix = "https://www.youtube.com/watch?v=abc&list=RDabc"
+        assertTrue(MediaParser.urlHasVideoAndList(videoWithMix))
+        assertTrue(!MediaParser.shouldExtractPlaylist(videoWithMix, "auto"))
+        assertTrue(MediaParser.shouldExtractPlaylist(videoWithMix, "playlist"))
+        assertEquals("Mi_Lista", MediaParser.sanitizeFolderName("  Mi:Lista/  ", "Playlist"))
+
+        val raw = JSONObject().apply {
+            put("_type", "playlist")
+            put("title", "Lista Test")
+            put("extractor_key", "YoutubeTab")
+            put(
+                "entries",
+                JSONArray().apply {
+                    put(JSONObject().put("id", "aaa11111111").put("title", "Uno").put("duration", 60))
+                    put(JSONObject().put("id", "bbb22222222").put("title", "[Private video]"))
+                    put(JSONObject().put("id", "ccc33333333").put("title", "Tres").put("duration", 120))
+                },
+            )
+        }
+        val parsed = MediaParser.parseMediaInfoJson("https://www.youtube.com/playlist?list=PL99", raw.toString())
+        assertTrue(parsed.getBoolean("is_playlist"))
+        assertEquals(2, parsed.getInt("playlist_count"))
+        val entries = parsed.getJSONArray("playlist_entries")
+        assertEquals(1, entries.getJSONObject(0).getInt("index"))
+        assertEquals(3, entries.getJSONObject(1).getInt("index"))
+    }
 }

@@ -7,7 +7,7 @@ import re
 import shutil
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from yt_dlp import YoutubeDL
 
@@ -17,6 +17,7 @@ from app.schemas import (
     AudioFormatOption,
     DownloadRequest,
     MediaInfoResponse,
+    PlaylistEntryInfo,
     VideoOption,
 )
 
@@ -413,10 +414,177 @@ def _trim_description(raw: Any, limit: int = 700) -> str | None:
     return f"{text[:limit].rstrip()}…"
 
 
-def extract_media_info(url: str) -> MediaInfoResponse:
+PLAYLIST_TARGET_HEIGHTS = [2160, 1440, 1080, 720, 480, 360]
+
+
+def url_has_video_and_list(url: str) -> bool:
+    """Return True when the URL references both an individual item and a playlist."""
+    parsed = urlparse((url or "").strip())
+    qs = parse_qs(parsed.query)
+    has_list = bool(qs.get("list") and qs["list"][0])
+    if not has_list:
+        return False
+    has_video = bool(qs.get("v") and qs["v"][0]) or "/watch" in parsed.path.lower()
+    return has_video
+
+
+def should_extract_playlist(url: str, playlist_mode: str = "auto") -> bool:
+    """Decide whether /api/info should inspect a playlist or a single item."""
+    mode = (playlist_mode or "auto").lower()
+    if mode == "single":
+        return False
+    if mode == "playlist":
+        return True
+    parsed = urlparse((url or "").strip())
+    qs = parse_qs(parsed.query)
+    list_id = (qs.get("list") or [""])[0]
+    if url_has_video_and_list(url) and list_id.upper().startswith("RD"):
+        # YouTube auto-generated infinite Mix/Radio playlists default to single video unless user toggles.
+        return False
+    return True
+
+
+def build_playlist_video_options() -> list[VideoOption]:
+    """Build standard maximum-resolution targets for playlist downloads."""
+    options: list[VideoOption] = []
+    for height in PLAYLIST_TARGET_HEIGHTS:
+        label, tag = _resolution_labels(height)
+        options.append(
+            VideoOption(
+                id=f"h-{height}",
+                height=height,
+                width=None,
+                label=f"Hasta {label}",
+                quality_tag=tag,
+                fps=None,
+                vcodec=None,
+                dynamic_range=None,
+                tbr=None,
+                filesize_approx=None,
+                has_audio=False,
+            )
+        )
+    return options
+
+
+def sanitize_folder_name(name: str, fallback: str = "Playlist") -> str:
+    """Sanitize a playlist title into a safe cross-platform folder name."""
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", (name or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" .")
+    if not cleaned:
+        return fallback
+    return cleaned[:90].rstrip(" .") or fallback
+
+
+def _extract_entry_thumbnail(entry: dict[str, Any]) -> str | None:
+    thumb = entry.get("thumbnail")
+    if isinstance(thumb, str) and thumb.strip():
+        return thumb.strip()
+    thumbs = entry.get("thumbnails")
+    if isinstance(thumbs, list):
+        for item in reversed(thumbs):
+            if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"].strip():
+                return item["url"].strip()
+    return None
+
+
+def _normalize_entry_url(entry: dict[str, Any]) -> str | None:
+    raw = entry.get("webpage_url") or entry.get("url")
+    if isinstance(raw, str) and raw.strip():
+        s = raw.strip()
+        if s.startswith("http://") or s.startswith("https://"):
+            return s
+        if re.fullmatch(r"[A-Za-z0-9_-]{11}", s):
+            return f"https://www.youtube.com/watch?v={s}"
+    entry_id = entry.get("id")
+    if isinstance(entry_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{11}", entry_id):
+        return f"https://www.youtube.com/watch?v={entry_id}"
+    return None
+
+
+def _parse_playlist_response(
+    cleaned_url: str,
+    info: dict[str, Any],
+    can_toggle: bool,
+) -> MediaInfoResponse:
+    raw_entries = info.get("entries") or []
+    entries: list[PlaylistEntryInfo] = []
+    for idx, entry in enumerate(raw_entries, start=1):
+        if not isinstance(entry, dict):
+            continue
+        raw_title = str(entry.get("title") or "").strip()
+        if raw_title in {"[Private video]", "[Deleted video]", "[Unavailable video]"}:
+            continue
+        dur_raw = entry.get("duration")
+        dur_int = (
+            int(round(float(dur_raw)))
+            if isinstance(dur_raw, (int, float)) and dur_raw >= 0
+            else None
+        )
+        entries.append(
+            PlaylistEntryInfo(
+                index=idx,
+                id=str(entry.get("id")) if entry.get("id") is not None else None,
+                title=raw_title or f"Elemento {idx}",
+                duration=dur_int,
+                duration_text=format_duration(dur_raw),
+                uploader=entry.get("uploader") or entry.get("channel") or entry.get("creator"),
+                thumbnail=_extract_entry_thumbnail(entry),
+                url=_normalize_entry_url(entry),
+            )
+        )
+
+    if not entries:
+        raise ValueError("La lista no contiene elementos disponibles.")
+
+    playlist_title = str(info.get("title") or "Playlist").strip()
+    total_dur = sum(e.duration for e in entries if e.duration is not None)
+    duration_val = total_dur if total_dur > 0 else None
+    thumb = _extract_entry_thumbnail(info) or entries[0].thumbnail
+    uploader = info.get("uploader") or info.get("channel") or info.get("creator") or entries[0].uploader
+
+    audio_bitrates = [
+        AudioBitrateOption(bitrate=br, label=f"{br} kbps", estimated_bytes=None)
+        for br in AUDIO_BITRATES
+    ]
+
+    return MediaInfoResponse(
+        url=cleaned_url,
+        title=playlist_title,
+        uploader=uploader,
+        duration=duration_val,
+        duration_text=format_duration(duration_val),
+        upload_date=format_upload_date(info.get("upload_date")),
+        description=_trim_description(info.get("description")),
+        webpage_url=info.get("webpage_url") or cleaned_url,
+        thumbnail=thumb,
+        platform=_format_platform(info.get("extractor_key") or info.get("extractor")),
+        view_count=info.get("view_count"),
+        video_options=build_playlist_video_options(),
+        video_containers=VIDEO_CONTAINERS,
+        audio_formats=AUDIO_FORMATS,
+        audio_bitrates=audio_bitrates,
+        is_playlist=True,
+        playlist_title=playlist_title,
+        playlist_count=len(entries),
+        playlist_entries=entries,
+        can_toggle_playlist=can_toggle,
+    )
+
+
+def extract_media_info(url: str, playlist_mode: str = "auto") -> MediaInfoResponse:
     """Fetch metadata and available quality options without downloading media."""
     cleaned_url = validate_url(url)
+    can_toggle = url_has_video_and_list(cleaned_url)
+    wants_playlist = should_extract_playlist(cleaned_url, playlist_mode)
+
     opts = {**build_base_ydl_opts(), "skip_download": True}
+    if wants_playlist:
+        opts.pop("playlist_items", None)
+        opts["noplaylist"] = False
+        opts["extract_flat"] = "in_playlist"
+        opts["playlistend"] = 200
+        opts["ignoreerrors"] = True
 
     with YoutubeDL(opts) as ydl:
         info = ydl.extract_info(cleaned_url, download=False)
@@ -425,6 +593,11 @@ def extract_media_info(url: str) -> MediaInfoResponse:
         raise ValueError("No se pudo obtener información del enlace proporcionado.")
 
     if info.get("_type") == "playlist":
+        if wants_playlist and (playlist_mode == "playlist" or info.get("entries")):
+            entries_preview = [e for e in (info.get("entries") or []) if e]
+            # Multi-item playlists (or explicit playlist mode) open the playlist workspace.
+            if playlist_mode == "playlist" or len(entries_preview) > 1 or not can_toggle:
+                return _parse_playlist_response(cleaned_url, info, can_toggle)
         entries = [entry for entry in (info.get("entries") or []) if entry]
         if not entries:
             raise ValueError("La lista no contiene elementos disponibles.")
@@ -485,6 +658,7 @@ def extract_media_info(url: str) -> MediaInfoResponse:
         source_audio_codec=source_audio_codec,
         subtitle_languages=subtitle_languages,
         is_live=bool(info.get("is_live")),
+        can_toggle_playlist=can_toggle,
     )
 
 
@@ -527,9 +701,17 @@ def build_download_ydl_opts(
     progress_hook: Callable[[dict[str, Any]], None],
     postprocessor_hook: Callable[[dict[str, Any]], None],
 ) -> dict[str, Any]:
-    """Construct yt-dlp options for either video+audio muxing or audio extraction."""
+    """Construct yt-dlp options for single or playlist video/audio downloads."""
     opts = build_base_ydl_opts()
-    opts["outtmpl"] = str(job_dir / "%(title).120B.%(ext)s")
+    if req.is_playlist:
+        opts["noplaylist"] = False
+        valid_items = sorted({int(i) for i in (req.playlist_items or []) if 1 <= int(i) <= 1000})
+        opts["playlist_items"] = ",".join(str(i) for i in valid_items) if valid_items else "1-200"
+        opts["ignoreerrors"] = "only_download"
+        opts["outtmpl"] = str(job_dir / "%(autonumber)02d - %(title).100B.%(ext)s")
+    else:
+        opts["outtmpl"] = str(job_dir / "%(title).120B.%(ext)s")
+
     opts["overwrites"] = True
     opts["progress_hooks"] = [progress_hook]
     opts["postprocessor_hooks"] = [postprocessor_hook]
@@ -560,17 +742,8 @@ def build_download_ydl_opts(
     return opts
 
 
-def find_output_file(job_dir: Path, hook_filepath: str | None = None) -> Path:
-    """Locate the final downloaded file inside job_dir, ignoring temp artifacts."""
-    if hook_filepath:
-        candidate = Path(hook_filepath)
-        if (
-            candidate.is_file()
-            and candidate.parent.resolve() == job_dir.resolve()
-            and candidate.suffix.lower() not in TEMP_SUFFIXES
-        ):
-            return candidate
-
+def find_output_files(job_dir: Path) -> list[Path]:
+    """Return all final media files inside job_dir sorted by name."""
     candidates: list[Path] = []
     for item in job_dir.iterdir():
         if not item.is_file():
@@ -586,6 +759,21 @@ def find_output_file(job_dir: Path, hook_filepath: str | None = None) -> Path:
     if not candidates:
         raise FileNotFoundError("No se encontró el archivo resultante tras la descarga.")
 
+    return sorted(candidates, key=lambda p: p.name.lower())
+
+
+def find_output_file(job_dir: Path, hook_filepath: str | None = None) -> Path:
+    """Locate the final downloaded file inside job_dir, ignoring temp artifacts."""
+    if hook_filepath:
+        candidate = Path(hook_filepath)
+        if (
+            candidate.is_file()
+            and candidate.parent.resolve() == job_dir.resolve()
+            and candidate.suffix.lower() not in TEMP_SUFFIXES
+        ):
+            return candidate
+
+    candidates = find_output_files(job_dir)
     return max(candidates, key=lambda p: p.stat().st_size)
 
 

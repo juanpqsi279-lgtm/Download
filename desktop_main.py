@@ -314,7 +314,7 @@ class DesktopBridge:
 
     def open_file(self, path: str) -> bool:
         target = Path(path)
-        if not target.is_file():
+        if not target.exists():
             return False
         try:
             open_path_in_os(target)

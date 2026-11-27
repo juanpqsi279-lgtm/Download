@@ -68,6 +68,32 @@ struct ParserTestRunner {
         ])
         expect((ipaPick?["name"] as? String) == "Download-v1.3.0-ios.ipa", "pickIOSIpaAsset")
 
+        let mixUrl = "https://www.youtube.com/watch?v=abc&list=RDabc"
+        expect(MediaParser.urlHasVideoAndList(mixUrl), "urlHasVideoAndList mix")
+        expect(!MediaParser.shouldExtractPlaylist(mixUrl, playlistMode: "auto"), "RD mix auto stays single")
+        expect(MediaParser.shouldExtractPlaylist(mixUrl, playlistMode: "playlist"), "RD mix forced playlist")
+        expect(MediaParser.sanitizeFolderName("  Lista:2026/  ") == "Lista_2026_", "sanitizeFolderName")
+
+        let plInfo: [String: Any] = [
+            "_type": "playlist",
+            "title": "Lista iOS",
+            "extractor_key": "YoutubeTab",
+            "entries": [
+                ["id": "aaa11111111", "title": "Uno", "duration": 60.0],
+                ["id": "bbb22222222", "title": "[Private video]"],
+                ["id": "ccc33333333", "title": "Tres", "duration": 90.0],
+            ],
+        ]
+        let plData = try! JSONSerialization.data(withJSONObject: plInfo)
+        let plParsed = try! MediaParser.parseMediaInfoJson(
+            rawUrl: "https://www.youtube.com/playlist?list=PL99",
+            rawJson: String(decoding: plData, as: UTF8.self)
+        )
+        expect((plParsed["is_playlist"] as? Bool) == true, "is_playlist true")
+        expect((plParsed["playlist_count"] as? Int) == 2, "playlist_count 2")
+        let plEntries = plParsed["playlist_entries"] as! [[String: Any]]
+        expect((plEntries[0]["index"] as? Int) == 1 && (plEntries[1]["index"] as? Int) == 3, "preserve 1-based indices")
+
         print("IOS MEDIA PARSER TESTS OK")
     }
 }

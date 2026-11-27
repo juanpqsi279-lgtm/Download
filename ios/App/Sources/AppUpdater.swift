@@ -5,7 +5,7 @@ final class AppUpdater {
     static let githubRepo = "juanpqsi279-lgtm/Download"
 
     static func appVersion() -> String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.4.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.5.0"
     }
 
     static func runtimeToolsJson() -> [String: Any] {

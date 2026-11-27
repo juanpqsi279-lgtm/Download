@@ -141,6 +141,7 @@ class LocalApiServer(
                 put("platform", "android")
                 put("desktop_mode", true)
                 put("frozen", true)
+                put("can_self_update", true)
                 put("github_repo", AppUpdater.GITHUB_REPO)
                 put("download_dir", "Download/!Download")
                 put(
@@ -177,6 +178,9 @@ class LocalApiServer(
                 sendJson(output, 400, JSONObject().put("detail", exc.message))
                 return
             }
+            val playlistMode = req.optString("playlist_mode", "auto").ifBlank { "auto" }
+            val canToggle = MediaParser.urlHasVideoAndList(url)
+            val wantsPlaylist = MediaParser.shouldExtractPlaylist(url, playlistMode)
 
             val engineStatus = runBlocking { app.ensureEngineReady() }
             if (!engineStatus.ready) {
@@ -187,14 +191,21 @@ class LocalApiServer(
             try {
                 val ydlReq = YoutubeDLRequest(url).apply {
                     addOption("--dump-single-json")
-                    addOption("--no-playlist")
-                    addOption("--playlist-items", "1")
+                    if (wantsPlaylist) {
+                        addOption("--flat-playlist")
+                        addOption("--yes-playlist")
+                        addOption("--playlist-end", "200")
+                        addOption("--ignore-errors")
+                    } else {
+                        addOption("--no-playlist")
+                        addOption("--playlist-items", "1")
+                    }
                     addOption("--skip-download")
                     addOption("--no-warnings")
                     addOption("--socket-timeout", "25")
                 }
                 val resp = YoutubeDL.getInstance().execute(ydlReq)
-                val infoJson = MediaParser.parseMediaInfoJson(url, resp.out)
+                val infoJson = MediaParser.parseMediaInfoJson(url, resp.out, canToggle, playlistMode)
                 sendJson(output, 200, infoJson)
             } catch (exc: Exception) {
                 sendJson(output, 422, JSONObject().put("detail", MediaParser.translateYtDlpError(exc.message)))
@@ -217,6 +228,16 @@ class LocalApiServer(
             }
 
             val height = if (req.has("height") && !req.isNull("height")) req.optInt("height") else null
+            val isPlaylist = req.optBoolean("is_playlist", false)
+            val playlistItemsJson = req.optJSONArray("playlist_items")
+            val playlistItems = if (playlistItemsJson != null) {
+                (0 until playlistItemsJson.length())
+                    .mapNotNull { idx -> playlistItemsJson.optInt(idx, -1).takeIf { it in 1..1000 } }
+                    .distinct()
+                    .sorted()
+            } else {
+                null
+            }
             val jobReq = DownloadManagerEngine.JobRequest(
                 url = url,
                 mode = req.optString("mode", "video"),
@@ -226,6 +247,8 @@ class LocalApiServer(
                 audioBitrate = req.optInt("audio_bitrate", 192),
                 embedMetadata = req.optBoolean("embed_metadata", true),
                 titleHint = req.optString("title_hint", "").ifBlank { null },
+                isPlaylist = isPlaylist,
+                playlistItems = playlistItems,
             )
             val job = engine.createJob(jobReq)
             sendJson(output, 200, job.toJson())

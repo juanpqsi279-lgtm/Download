@@ -178,7 +178,7 @@ async def api_open_file(req: OpenPathRequest) -> dict[str, bool]:
     target = Path(req.path)
     if not _is_allowed_local_path(target):
         raise HTTPException(status_code=403, detail="Ruta fuera de las carpetas permitidas.")
-    if not target.is_file():
+    if not target.exists():
         raise HTTPException(status_code=404, detail="El archivo ya no existe.")
 
     try:
@@ -191,7 +191,7 @@ async def api_open_file(req: OpenPathRequest) -> dict[str, bool]:
 @app.post("/api/info", response_model=MediaInfoResponse)
 async def analyze_media(req: AnalyzeRequest) -> MediaInfoResponse:
     try:
-        return await asyncio.to_thread(extract_media_info, req.url)
+        return await asyncio.to_thread(extract_media_info, req.url, req.playlist_mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

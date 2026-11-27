@@ -35,6 +35,52 @@ enum MediaParser {
         "generic": "Enlace directo",
     ]
     private static let audioBitrates = [320, 256, 192, 128, 96]
+    private static let playlistTargetHeights = [2160, 1440, 1080, 720, 480, 360]
+
+    static func urlHasVideoAndList(_ rawUrl: String) -> Bool {
+        guard let components = URLComponents(string: rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let items = components.queryItems else {
+            return false
+        }
+        let hasList = items.contains { $0.name == "list" && !($0.value ?? "").isEmpty }
+        guard hasList else { return false }
+        let hasVideo = items.contains { $0.name == "v" && !($0.value ?? "").isEmpty }
+        let hasWatch = components.path.lowercased().contains("/watch")
+        return hasVideo || hasWatch
+    }
+
+    static func shouldExtractPlaylist(_ rawUrl: String, playlistMode: String = "auto") -> Bool {
+        let mode = playlistMode.lowercased()
+        if mode == "single" { return false }
+        if mode == "playlist" { return true }
+        if urlHasVideoAndList(rawUrl),
+           let components = URLComponents(string: rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)),
+           let listVal = components.queryItems?.first(where: { $0.name == "list" })?.value,
+           listVal.uppercased().hasPrefix("RD") {
+            return false
+        }
+        return true
+    }
+
+    static func sanitizeFolderName(_ name: String?, fallback: String = "Playlist") -> String {
+        let raw = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let forbidden = CharacterSet(charactersIn: "<>:\"/\\|?*")
+        var cleaned = raw.unicodeScalars.map { scalar -> String in
+            if forbidden.contains(scalar) || scalar.value < 32 {
+                return "_"
+            }
+            return String(scalar)
+        }.joined()
+        while cleaned.contains("  ") {
+            cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
+        }
+        cleaned = cleaned.trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        if cleaned.isEmpty { return fallback }
+        if cleaned.count > 90 {
+            cleaned = String(cleaned.prefix(90)).trimmingCharacters(in: CharacterSet(charactersIn: " ."))
+        }
+        return cleaned.isEmpty ? fallback : cleaned
+    }
 
     static func validateUrl(_ rawUrl: String) throws -> String {
         let cleaned = rawUrl.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -183,7 +229,12 @@ enum MediaParser {
         return ("\(height)p", "\(height)p")
     }
 
-    static func parseMediaInfoJson(rawUrl: String, rawJson: String) throws -> [String: Any] {
+    static func parseMediaInfoJson(
+        rawUrl: String,
+        rawJson: String,
+        canTogglePlaylist: Bool = false,
+        playlistMode: String = "auto"
+    ) throws -> [String: Any] {
         let cleanedUrl = try validateUrl(rawUrl)
         guard let data = rawJson.data(using: .utf8),
               var info = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -191,7 +242,11 @@ enum MediaParser {
         }
 
         if (info["_type"] as? String) == "playlist" {
-            let entries = (info["entries"] as? [[String: Any]?])?.compactMap { $0 } ?? []
+            let entries = (info["entries"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+            let wantsPlaylist = shouldExtractPlaylist(cleanedUrl, playlistMode: playlistMode)
+            if wantsPlaylist && (playlistMode.lowercased() == "playlist" || entries.count > 1 || !canTogglePlaylist) {
+                return try parsePlaylistInfoJson(cleanedUrl: cleanedUrl, info: info, canTogglePlaylist: canTogglePlaylist)
+            }
             guard let first = entries.first else {
                 throw MediaValidationError.message("La lista no contiene elementos disponibles.")
             }
@@ -378,6 +433,148 @@ enum MediaParser {
             "source_audio_codec": bestAudioCodec ?? NSNull(),
             "subtitle_languages": subtitleLanguages,
             "is_live": (info["is_live"] as? Bool) ?? false,
+            "is_playlist": false,
+            "playlist_title": NSNull(),
+            "playlist_count": 0,
+            "playlist_entries": [],
+            "can_toggle_playlist": canTogglePlaylist,
+        ]
+    }
+
+    private static func extractEntryThumbnail(_ obj: [String: Any]) -> String? {
+        if let thumb = nonEmptyString(obj, "thumbnail") { return thumb }
+        if let thumbs = obj["thumbnails"] as? [[String: Any]] {
+            for item in thumbs.reversed() {
+                if let u = nonEmptyString(item, "url") { return u }
+            }
+        }
+        return nil
+    }
+
+    private static func normalizeEntryUrl(_ entry: [String: Any]) -> String? {
+        if let raw = nonEmptyString(entry, "webpage_url") ?? nonEmptyString(entry, "url") {
+            if raw.hasPrefix("http://") || raw.hasPrefix("https://") { return raw }
+            if raw.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil {
+                return "https://www.youtube.com/watch?v=\(raw)"
+            }
+        }
+        if let entryId = nonEmptyString(entry, "id"),
+           entryId.range(of: #"^[A-Za-z0-9_-]{11}$"#, options: .regularExpression) != nil {
+            return "https://www.youtube.com/watch?v=\(entryId)"
+        }
+        return nil
+    }
+
+    private static func parsePlaylistInfoJson(
+        cleanedUrl: String,
+        info: [String: Any],
+        canTogglePlaylist: Bool
+    ) throws -> [String: Any] {
+        let rawEntries = info["entries"] as? [Any] ?? []
+        var playlistEntries: [[String: Any]] = []
+        var totalDuration = 0
+        var hasDuration = false
+        var firstThumb: String?
+        var firstUploader: String?
+
+        let skipTitles: Set<String> = ["[Private video]", "[Deleted video]", "[Unavailable video]"]
+        for (offset, raw) in rawEntries.enumerated() {
+            guard let entry = raw as? [String: Any] else { continue }
+            let rawTitle = nonEmptyString(entry, "title") ?? ""
+            if skipTitles.contains(rawTitle) { continue }
+
+            let oneBased = offset + 1
+            let durDouble = positiveDouble(entry, "duration")
+            let durInt = durDouble.map { Int($0.rounded()) }
+            if let d = durInt {
+                totalDuration += d
+                hasDuration = true
+            }
+            let thumb = extractEntryThumbnail(entry)
+            if firstThumb == nil, let thumb { firstThumb = thumb }
+            let uploader = nonEmptyString(entry, "uploader")
+                ?? nonEmptyString(entry, "channel")
+                ?? nonEmptyString(entry, "creator")
+            if firstUploader == nil, let uploader { firstUploader = uploader }
+
+            playlistEntries.append([
+                "index": oneBased,
+                "id": nonEmptyString(entry, "id") ?? NSNull(),
+                "title": rawTitle.isEmpty ? "Elemento \(oneBased)" : rawTitle,
+                "duration": durInt ?? NSNull(),
+                "duration_text": formatDuration(durDouble) ?? NSNull(),
+                "uploader": uploader ?? NSNull(),
+                "thumbnail": thumb ?? NSNull(),
+                "url": normalizeEntryUrl(entry) ?? NSNull(),
+            ])
+        }
+
+        if playlistEntries.isEmpty {
+            throw MediaValidationError.message("La lista no contiene elementos disponibles.")
+        }
+
+        let playlistTitle = nonEmptyString(info, "title") ?? "Playlist"
+        let playlistThumb = extractEntryThumbnail(info) ?? firstThumb
+        let playlistUploader = nonEmptyString(info, "uploader")
+            ?? nonEmptyString(info, "channel")
+            ?? nonEmptyString(info, "creator")
+            ?? firstUploader
+
+        let videoOptions: [[String: Any]] = playlistTargetHeights.map { height in
+            let (label, tag) = resolutionLabels(height)
+            return [
+                "id": "h-\(height)",
+                "height": height,
+                "width": NSNull(),
+                "label": "Hasta \(label)",
+                "quality_tag": tag,
+                "fps": NSNull(),
+                "vcodec": NSNull(),
+                "dynamic_range": NSNull(),
+                "tbr": NSNull(),
+                "filesize_approx": NSNull(),
+                "has_audio": false,
+            ]
+        }
+
+        let videoContainers: [[String: String]] = [
+            ["value": "mp4", "label": "MP4", "description": "Nativo para iPhone y Fototeca"],
+        ]
+        let audioFormats: [[String: Any]] = [
+            ["format": "m4a", "label": "M4A (AAC)", "description": "Formato nativo Apple de alta fidelidad", "lossless": false],
+            ["format": "mp4", "label": "Original", "description": "Pista de audio directa sin recodificar", "lossless": true],
+        ]
+        let bitrateOpts: [[String: Any]] = audioBitrates.map { br in
+            ["bitrate": br, "label": "\(br) kbps", "estimated_bytes": NSNull()]
+        }
+
+        let extractor = nonEmptyString(info, "extractor_key") ?? nonEmptyString(info, "extractor")
+        return [
+            "url": cleanedUrl,
+            "title": playlistTitle,
+            "uploader": playlistUploader ?? NSNull(),
+            "duration": hasDuration ? totalDuration : NSNull(),
+            "duration_text": hasDuration ? (formatDuration(Double(totalDuration)) ?? NSNull()) : NSNull(),
+            "upload_date": formatUploadDate(nonEmptyString(info, "upload_date")) ?? NSNull(),
+            "like_count": NSNull(),
+            "description": nonEmptyString(info, "description") ?? NSNull(),
+            "webpage_url": nonEmptyString(info, "webpage_url") ?? cleanedUrl,
+            "thumbnail": playlistThumb ?? NSNull(),
+            "platform": formatPlatform(extractor),
+            "view_count": NSNull(),
+            "video_options": videoOptions,
+            "video_containers": videoContainers,
+            "audio_formats": audioFormats,
+            "audio_bitrates": bitrateOpts,
+            "source_audio_abr": NSNull(),
+            "source_audio_codec": NSNull(),
+            "subtitle_languages": [],
+            "is_live": false,
+            "is_playlist": true,
+            "playlist_title": playlistTitle,
+            "playlist_count": playlistEntries.count,
+            "playlist_entries": playlistEntries,
+            "can_toggle_playlist": canTogglePlaylist,
         ]
     }
 

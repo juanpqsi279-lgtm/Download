@@ -23,12 +23,18 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import org.json.JSONObject
+import java.lang.ref.WeakReference
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private var pageLoaded = false
     private var pendingSharedUrl: String? = null
+
+    companion object {
+        @Volatile
+        var currentActivity: WeakReference<MainActivity>? = null
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +94,19 @@ class MainActivity : AppCompatActivity() {
         val serverPort = DownloadApp.instance.localServer.port
         webView.loadUrl("http://127.0.0.1:$serverPort/")
         requestNotificationPermissionIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        currentActivity = WeakReference(this)
+        AppUpdater.installPendingApkIfPermitted(this)
+    }
+
+    override fun onDestroy() {
+        if (currentActivity?.get() === this) {
+            currentActivity = null
+        }
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

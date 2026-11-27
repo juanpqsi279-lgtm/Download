@@ -424,3 +424,60 @@ def test_desktop_gui_backend_and_restart_command(monkeypatch) -> None:
     assert "server" not in public_attrs
     assert all(callable(getattr(bridge, name)) for name in public_attrs)
 
+
+def test_playlist_detection_parsing_and_download_options(tmp_path: Path) -> None:
+    from app.media_service import (
+        _parse_playlist_response,
+        build_download_ydl_opts,
+        sanitize_folder_name,
+        should_extract_playlist,
+        url_has_video_and_list,
+    )
+
+    normal_pl = "https://www.youtube.com/playlist?list=PL123456"
+    assert url_has_video_and_list(normal_pl) is False
+    assert should_extract_playlist(normal_pl, "auto") is True
+
+    video_plus_list = "https://www.youtube.com/watch?v=abc123&list=PL123456"
+    assert url_has_video_and_list(video_plus_list) is True
+    assert should_extract_playlist(video_plus_list, "auto") is True
+    assert should_extract_playlist(video_plus_list, "single") is False
+
+    rd_mix = "https://www.youtube.com/watch?v=abc123&list=RDabc123"
+    assert url_has_video_and_list(rd_mix) is True
+    assert should_extract_playlist(rd_mix, "auto") is False
+    assert should_extract_playlist(rd_mix, "playlist") is True
+
+    raw_info = {
+        "_type": "playlist",
+        "title": "Mi Lista: Favoritos / 2026?",
+        "uploader": "Juan",
+        "extractor_key": "YoutubeTab",
+        "entries": [
+            {"id": "vid11111111", "title": "Pista 1", "duration": 120},
+            {"id": "priv2222222", "title": "[Private video]", "duration": 90},
+            None,
+            {"id": "vid44444444", "title": "Pista 4", "duration": 180},
+        ],
+    }
+    parsed = _parse_playlist_response(normal_pl, raw_info, can_toggle=False)
+    assert parsed.is_playlist is True
+    assert parsed.playlist_count == 2
+    assert [e.index for e in parsed.playlist_entries] == [1, 4]
+    assert parsed.playlist_entries[0].url == "https://www.youtube.com/watch?v=vid11111111"
+    assert sanitize_folder_name("Mi Lista: Favoritos / 2026?") == "Mi Lista_ Favoritos _ 2026_"
+
+    req = DownloadRequest(
+        url=normal_pl,
+        mode="audio",
+        audio_format="mp3",
+        audio_bitrate=192,
+        is_playlist=True,
+        playlist_items=[4, 1, 4],
+    )
+    opts = build_download_ydl_opts(req, tmp_path, lambda _: None, lambda _: None)
+    assert opts["noplaylist"] is False
+    assert opts["playlist_items"] == "1,4"
+    assert "%(autonumber)02d" in opts["outtmpl"]
+
+

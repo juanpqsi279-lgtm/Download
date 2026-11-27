@@ -1,6 +1,6 @@
 [project]
 name = "exclaim-download"
-version = "1.4.0"
+version = "1.5.0"
 description = "!Download by Juan Corporation"
 readme = "README.md"
 license = { file = "LICENSE" }

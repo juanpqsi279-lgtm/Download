@@ -16,6 +16,8 @@
     media: null,
     activeView: "download",
     mode: "video",
+    playlistMode: "auto",
+    selectedPlaylistIndices: new Set(),
     selectedHeight: null,
     selectedContainer: "mp4",
     selectedAudioFormat: "mp3",
@@ -83,6 +85,14 @@
     qualityMeterValue: document.getElementById("qualityMeterValue"),
     qualityMeterLabel: document.getElementById("qualityMeterLabel"),
     qualityMeterInfoBtn: document.getElementById("qualityMeterInfoBtn"),
+
+    playlistScopeBar: document.getElementById("playlistScopeBar"),
+    scopeSingleBtn: document.getElementById("scopeSingleBtn"),
+    scopePlaylistBtn: document.getElementById("scopePlaylistBtn"),
+    playlistSection: document.getElementById("playlistSection"),
+    playlistSelectedCount: document.getElementById("playlistSelectedCount"),
+    toggleAllPlaylistBtn: document.getElementById("toggleAllPlaylistBtn"),
+    playlistEntriesList: document.getElementById("playlistEntriesList"),
 
     detailsToggleBtn: document.getElementById("detailsToggleBtn"),
     detailsPanel: document.getElementById("detailsPanel"),
@@ -344,7 +354,7 @@
       const info = await resp.json();
       state.appInfo = info;
 
-      const version = info.version || "1.4.0";
+      const version = info.version || "1.5.0";
       const developer = info.developer || "Juan Corporation";
       els.footerCredit.textContent = `${info.name || "!Download"} v${version} · ${developer}`;
       els.modalVersionSub.textContent = `v${version} · ${developer}`;
@@ -523,6 +533,8 @@
 
   function resetMediaView() {
     state.media = null;
+    state.playlistMode = "auto";
+    state.selectedPlaylistIndices.clear();
     els.mediaSection.hidden = true;
     els.heroComposer.hidden = false;
     els.quickTiles.hidden = false;
@@ -530,7 +542,7 @@
     els.urlInput.focus();
   }
 
-  async function analyzeUrl(urlValue) {
+  async function analyzeUrl(urlValue, overrideMode) {
     const url = (urlValue || els.urlInput.value).trim();
     clearError();
     if (!url) {
@@ -539,12 +551,15 @@
       return;
     }
 
+    const playlistMode = overrideMode || state.playlistMode || "auto";
+    state.playlistMode = playlistMode;
+
     setAnalyzing(true);
     try {
       const resp = await fetch("/api/info", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, playlist_mode: playlistMode }),
       });
       const payload = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -741,12 +756,113 @@
       els.descriptionBox.hidden = true;
     }
 
+    renderPlaylistSection(media);
     renderModeTabs();
     renderVideoOptions();
     renderAudioOptions();
     renderDetailedSpecs();
     renderQualityMeter();
     updateDownloadCta();
+  }
+
+  function renderPlaylistSection(media) {
+    const canToggle = Boolean(media.can_toggle_playlist);
+    const isPlaylist = Boolean(media.is_playlist);
+
+    if (els.playlistScopeBar) {
+      els.playlistScopeBar.hidden = !canToggle;
+      if (canToggle && els.scopeSingleBtn && els.scopePlaylistBtn) {
+        els.scopeSingleBtn.className = isPlaylist ? "apple-secondary-pill" : "apple-blue-pill";
+        els.scopePlaylistBtn.className = isPlaylist ? "apple-blue-pill" : "apple-secondary-pill";
+      }
+    }
+
+    if (!els.playlistSection || !els.playlistEntriesList) return;
+    if (!isPlaylist) {
+      state.selectedPlaylistIndices.clear();
+      els.playlistSection.hidden = true;
+      els.playlistEntriesList.innerHTML = "";
+      return;
+    }
+
+    const entries = media.playlist_entries || [];
+    state.selectedPlaylistIndices = new Set(entries.map((entry) => entry.index));
+    renderPlaylistEntriesList(entries);
+    els.playlistSection.hidden = false;
+  }
+
+  function renderPlaylistEntriesList(entries) {
+    if (!els.playlistEntriesList) return;
+    els.playlistEntriesList.innerHTML = "";
+
+    entries.forEach((entry) => {
+      const selected = state.selectedPlaylistIndices.has(entry.index);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `inset-row playlist-row${selected ? " is-selected" : ""}`;
+
+      const circle = document.createElement("span");
+      circle.className = "playlist-check-circle";
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("fill", "none");
+      svg.setAttribute("stroke", "currentColor");
+      svg.setAttribute("stroke-width", "3");
+      svg.setAttribute("stroke-linecap", "round");
+      svg.setAttribute("stroke-linejoin", "round");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", "m5 12.5 4.8 4.8L19 7");
+      svg.appendChild(path);
+      circle.appendChild(svg);
+
+      const idxPill = document.createElement("span");
+      idxPill.className = "playlist-index-pill";
+      idxPill.textContent = String(entry.index).padStart(2, "0");
+
+      const main = document.createElement("div");
+      main.className = "inset-row-main";
+
+      const title = document.createElement("span");
+      title.className = "inset-row-title";
+      title.textContent = entry.title || `Elemento ${entry.index}`;
+
+      const subParts = [];
+      if (entry.uploader) subParts.push(entry.uploader);
+      if (entry.duration_text) subParts.push(entry.duration_text);
+      if (subParts.length > 0) {
+        const sub = document.createElement("span");
+        sub.className = "inset-row-sub";
+        sub.textContent = subParts.join(" · ");
+        main.append(title, sub);
+      } else {
+        main.append(title);
+      }
+
+      row.append(circle, idxPill, main);
+      row.addEventListener("click", () => {
+        if (state.selectedPlaylistIndices.has(entry.index)) {
+          state.selectedPlaylistIndices.delete(entry.index);
+        } else {
+          state.selectedPlaylistIndices.add(entry.index);
+        }
+        renderPlaylistEntriesList(entries);
+        updateDownloadCta();
+      });
+      els.playlistEntriesList.appendChild(row);
+    });
+
+    updatePlaylistSelectionHeader(entries.length);
+  }
+
+  function updatePlaylistSelectionHeader(totalCount) {
+    const selectedCount = state.selectedPlaylistIndices.size;
+    if (els.playlistSelectedCount) {
+      els.playlistSelectedCount.textContent = `${selectedCount}/${totalCount}`;
+    }
+    if (els.toggleAllPlaylistBtn) {
+      els.toggleAllPlaylistBtn.textContent =
+        selectedCount === totalCount && totalCount > 0 ? "Deseleccionar todo" : "Seleccionar todo";
+    }
   }
 
   function renderDetailedSpecs() {
@@ -996,6 +1112,15 @@
 
   function updateDownloadCta() {
     if (!state.media) return;
+    const isPlaylist = Boolean(state.media.is_playlist);
+    const count = state.selectedPlaylistIndices.size;
+    if (isPlaylist && count === 0) {
+      els.startDownloadBtn.disabled = true;
+      els.downloadBtnText.textContent = "Selecciona al menos 1 elemento";
+      return;
+    }
+    const prefix = isPlaylist ? `Descargar Playlist (${count})` : null;
+
     if (state.mode === "video") {
       const options = state.media.video_options || [];
       if (options.length === 0) {
@@ -1006,19 +1131,33 @@
       els.startDownloadBtn.disabled = false;
       const selected = options.find((opt) => opt.height === state.selectedHeight) || options[0];
       const resLabel = selected ? selected.label : "Mejor calidad";
-      els.downloadBtnText.textContent = `Descargar Video · ${resLabel} · ${state.selectedContainer.toUpperCase()}`;
+      els.downloadBtnText.textContent = prefix
+        ? `${prefix} · ${resLabel} · ${state.selectedContainer.toUpperCase()}`
+        : `Descargar Video · ${resLabel} · ${state.selectedContainer.toUpperCase()}`;
     } else {
       els.startDownloadBtn.disabled = false;
       const fmtObj = (state.media.audio_formats || []).find((f) => f.format === state.selectedAudioFormat);
       const isLossless = Boolean(fmtObj && fmtObj.lossless);
       const suffix = isLossless ? "Sin pérdida" : `${state.selectedAudioBitrate} kbps`;
-      els.downloadBtnText.textContent = `Descargar Audio · ${state.selectedAudioFormat.toUpperCase()} · ${suffix}`;
+      els.downloadBtnText.textContent = prefix
+        ? `${prefix} · ${state.selectedAudioFormat.toUpperCase()} · ${suffix}`
+        : `Descargar Audio · ${state.selectedAudioFormat.toUpperCase()} · ${suffix}`;
     }
   }
 
   async function startDownload() {
     if (!state.media) return;
     clearError();
+
+    const isPlaylist = Boolean(state.media.is_playlist);
+    const playlistItems = isPlaylist
+      ? Array.from(state.selectedPlaylistIndices).sort((a, b) => a - b)
+      : null;
+
+    if (isPlaylist && (!playlistItems || playlistItems.length === 0)) {
+      showError("Selecciona al menos un elemento de la playlist para descargar.");
+      return;
+    }
 
     const payload = {
       url: state.media.url,
@@ -1029,6 +1168,8 @@
       audio_bitrate: state.selectedAudioBitrate,
       embed_metadata: els.embedMetadata.checked,
       title_hint: state.media.title,
+      is_playlist: isPlaylist,
+      playlist_items: playlistItems,
     };
 
     els.startDownloadBtn.disabled = true;
@@ -1205,9 +1346,10 @@
 
     if (job.status === "completed") {
       if (job.saved_path && isDesktopMode()) {
+        els.openSavedFolderBtn.textContent = job.is_playlist ? "Abrir carpeta" : "Mostrar en carpeta";
         els.openSavedFolderBtn.hidden = false;
         els.openSavedFolderBtn.onclick = () => openSystemPath("/api/system/open-folder", job.saved_path);
-        els.openSavedFileBtn.hidden = false;
+        els.openSavedFileBtn.hidden = Boolean(job.is_playlist);
         els.openSavedFileBtn.onclick = () => openSystemPath("/api/system/open-file", job.saved_path);
         els.savedPathLine.textContent = `Guardado en: ${job.saved_path}`;
         els.savedPathLine.hidden = false;
@@ -1511,10 +1653,38 @@
   // Form & tiles
   els.analyzeForm.addEventListener("submit", (e) => {
     e.preventDefault();
-    analyzeUrl();
+    state.playlistMode = "auto";
+    analyzeUrl(undefined, "auto");
   });
 
-  els.urlInput.addEventListener("input", updateClearButton);
+  if (els.scopeSingleBtn) {
+    els.scopeSingleBtn.addEventListener("click", () => {
+      if (state.media) analyzeUrl(state.media.url, "single");
+    });
+  }
+  if (els.scopePlaylistBtn) {
+    els.scopePlaylistBtn.addEventListener("click", () => {
+      if (state.media) analyzeUrl(state.media.url, "playlist");
+    });
+  }
+  if (els.toggleAllPlaylistBtn) {
+    els.toggleAllPlaylistBtn.addEventListener("click", () => {
+      if (!state.media || !state.media.is_playlist) return;
+      const entries = state.media.playlist_entries || [];
+      if (state.selectedPlaylistIndices.size === entries.length && entries.length > 0) {
+        state.selectedPlaylistIndices.clear();
+      } else {
+        state.selectedPlaylistIndices = new Set(entries.map((entry) => entry.index));
+      }
+      renderPlaylistEntriesList(entries);
+      updateDownloadCta();
+    });
+  }
+
+  els.urlInput.addEventListener("input", () => {
+    state.playlistMode = "auto";
+    updateClearButton();
+  });
 
   els.clearBtn.addEventListener("click", () => {
     els.urlInput.value = "";
@@ -1658,10 +1828,18 @@
           asset_name: state.updateInfo.asset_name,
         }),
       });
-      const data = await resp.json();
-      els.appUpdateText.textContent = data.message || data.detail || "Instalando actualización...";
-    } catch {
-      els.appUpdateText.textContent = "No se pudo descargar la actualización.";
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(data.detail || "No se pudo descargar la actualización.");
+      }
+      els.appUpdateText.textContent = data.message || "Instalando actualización...";
+      if (data.permission_required) {
+        els.installAppUpdateBtn.disabled = false;
+        els.installAppUpdateBtn.textContent = "Reintentar instalación";
+      }
+    } catch (err) {
+      els.appUpdateText.textContent =
+        err instanceof Error ? err.message : "No se pudo descargar la actualización.";
       els.installAppUpdateBtn.disabled = false;
       els.installAppUpdateBtn.textContent = "Instalar actualización";
     }

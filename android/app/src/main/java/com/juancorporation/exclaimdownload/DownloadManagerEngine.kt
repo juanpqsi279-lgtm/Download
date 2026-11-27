@@ -33,6 +33,7 @@ class DownloadManagerEngine(private val app: DownloadApp) {
 
     private val sizeLineRegex = Regex("""of\s+~?\s*([\d.]+)\s*(GiB|MiB|KiB|GB|MB|KB|B)""", RegexOption.IGNORE_CASE)
     private val speedLineRegex = Regex("""at\s+([\d.]+)\s*(GiB|MiB|KiB|GB|MB|KB|B)/s""", RegexOption.IGNORE_CASE)
+    private val itemLineRegex = Regex("""Downloading item (\d+) of (\d+)""", RegexOption.IGNORE_CASE)
 
     data class JobRequest(
         val url: String,
@@ -43,6 +44,8 @@ class DownloadManagerEngine(private val app: DownloadApp) {
         val audioBitrate: Int,
         val embedMetadata: Boolean,
         val titleHint: String?,
+        val isPlaylist: Boolean = false,
+        val playlistItems: List<Int>? = null,
     )
 
     class JobRecord(
@@ -66,6 +69,8 @@ class DownloadManagerEngine(private val app: DownloadApp) {
         @Volatile var savedMime: String? = null
         @Volatile var title: String? = req.titleHint
         @Volatile var error: String? = null
+        @Volatile var completedItems: Int = 0
+        @Volatile var totalItems: Int = if (req.isPlaylist) (req.playlistItems?.size ?: 0) else 1
         val cancelled = AtomicBoolean(false)
         val subscribers = CopyOnWriteArrayList<LinkedBlockingQueue<String>>()
 
@@ -86,6 +91,9 @@ class DownloadManagerEngine(private val app: DownloadApp) {
             put("quality_label", qualityLabel)
             put("error", error ?: JSONObject.NULL)
             put("created_at", createdAt)
+            put("is_playlist", req.isPlaylist)
+            put("completed_items", completedItems)
+            put("total_items", totalItems)
         }
     }
 
@@ -233,13 +241,21 @@ class DownloadManagerEngine(private val app: DownloadApp) {
             DownloadForegroundService.updateProgress(app, displayTitle, job.stage, 0, true)
 
             val request = YoutubeDLRequest(job.req.url).apply {
-                addOption("--no-playlist")
-                addOption("--playlist-items", "1")
+                if (job.req.isPlaylist) {
+                    addOption("--yes-playlist")
+                    addOption("--ignore-errors")
+                    val itemsArg = job.req.playlistItems?.takeIf { it.isNotEmpty() }?.joinToString(",") ?: "1-200"
+                    addOption("--playlist-items", itemsArg)
+                    addOption("-o", "${job.jobDir.absolutePath}/%(autonumber)02d - %(title).90B.%(ext)s")
+                } else {
+                    addOption("--no-playlist")
+                    addOption("--playlist-items", "1")
+                    addOption("-o", "${job.jobDir.absolutePath}/%(title).100B.%(ext)s")
+                }
                 addOption("--socket-timeout", "25")
                 addOption("--retries", "3")
                 addOption("--fragment-retries", "3")
                 addOption("--no-mtime")
-                addOption("-o", "${job.jobDir.absolutePath}/%(title).100B.%(ext)s")
 
                 if (job.req.mode == "video") {
                     addOption("-f", MediaParser.buildVideoFormatSelector(job.req.height, job.req.container))
@@ -257,36 +273,65 @@ class DownloadManagerEngine(private val app: DownloadApp) {
                 }
             }
 
+            var currentItemIdx = 1
+            var currentItemTotal = if (job.req.isPlaylist) (job.req.playlistItems?.size ?: 1).coerceAtLeast(1) else 1
+
             YoutubeDL.getInstance().execute(request, job.jobId) { progress, etaInSeconds, line ->
                 if (job.cancelled.get()) return@execute
 
                 val lower = line.lowercase(Locale.ROOT)
+                itemLineRegex.find(line)?.let { m ->
+                    currentItemIdx = m.groupValues[1].toIntOrNull() ?: currentItemIdx
+                    currentItemTotal = (m.groupValues[2].toIntOrNull() ?: currentItemTotal).coerceAtLeast(currentItemIdx)
+                    job.completedItems = (currentItemIdx - 1).coerceAtLeast(0)
+                    job.totalItems = currentItemTotal
+                }
+
                 when {
                     "[merger]" in lower -> {
                         job.status = "processing"
-                        job.stage = "Uniendo video y audio en ${job.req.container.uppercase(Locale.ROOT)}..."
-                        job.percent = 99.0
+                        job.stage = if (job.req.isPlaylist) {
+                            "Elemento $currentItemIdx de $currentItemTotal · Uniendo..."
+                        } else {
+                            "Uniendo video y audio en ${job.req.container.uppercase(Locale.ROOT)}..."
+                        }
+                        if (!job.req.isPlaylist) job.percent = 99.0
                         job.eta = 0L
                         job.speed = null
                     }
                     "[extractaudio]" in lower -> {
                         job.status = "processing"
-                        job.stage = "Convirtiendo audio a ${job.req.audioFormat.uppercase(Locale.ROOT)}..."
-                        job.percent = 99.0
+                        job.stage = if (job.req.isPlaylist) {
+                            "Elemento $currentItemIdx de $currentItemTotal · Convirtiendo audio..."
+                        } else {
+                            "Convirtiendo audio a ${job.req.audioFormat.uppercase(Locale.ROOT)}..."
+                        }
+                        if (!job.req.isPlaylist) job.percent = 99.0
                         job.eta = 0L
                         job.speed = null
                     }
                     "[metadata]" in lower -> {
                         job.status = "processing"
-                        job.stage = "Escribiendo metadatos..."
-                        job.percent = 99.0
+                        job.stage = if (job.req.isPlaylist) {
+                            "Elemento $currentItemIdx de $currentItemTotal · Metadatos..."
+                        } else {
+                            "Escribiendo metadatos..."
+                        }
+                        if (!job.req.isPlaylist) job.percent = 99.0
                         job.eta = 0L
                         job.speed = null
                     }
                     progress >= 0f -> {
                         job.status = "downloading"
-                        job.stage = if (job.req.mode == "video") "Descargando video y audio..." else "Descargando audio..."
-                        job.percent = progress.toDouble().coerceIn(0.0, 99.0)
+                        val itemPct = progress.toDouble().coerceIn(0.0, 99.0)
+                        if (job.req.isPlaylist) {
+                            job.stage = "Elemento $currentItemIdx de $currentItemTotal · Descargando..."
+                            val overall = (((currentItemIdx - 1) + (itemPct / 100.0)) / currentItemTotal.coerceAtLeast(1).toDouble()) * 100.0
+                            job.percent = overall.coerceIn(0.0, 99.0)
+                        } else {
+                            job.stage = if (job.req.mode == "video") "Descargando video y audio..." else "Descargando audio..."
+                            job.percent = itemPct
+                        }
                         if (etaInSeconds >= 0) {
                             job.eta = etaInSeconds
                         }
@@ -296,7 +341,7 @@ class DownloadManagerEngine(private val app: DownloadApp) {
                             if (num != null) {
                                 val tot = toBytes(num, unit)
                                 job.totalBytes = tot
-                                job.downloadedBytes = (tot * (job.percent / 100.0)).toLong()
+                                job.downloadedBytes = (tot * (itemPct / 100.0)).toLong()
                             }
                         }
                         speedLineRegex.find(line)?.let { m ->
@@ -333,6 +378,48 @@ class DownloadManagerEngine(private val app: DownloadApp) {
                 return
             }
 
+            if (job.req.isPlaylist) {
+                val outputFiles = findOutputFiles(job.jobDir)
+                val folderName = MediaParser.sanitizeFolderName(job.title ?: "Playlist")
+                job.stage = "Guardando ${outputFiles.size} archivos en Descargas/$folderName..."
+                job.status = "processing"
+                job.percent = 99.5
+                notifySubscribers(job)
+
+                var totalSize = 0L
+                var lastSaved: SavedMedia? = null
+                for (file in outputFiles) {
+                    val saved = MediaStoreSaver.saveToDownloads(app, file, subFolder = folderName)
+                    totalSize += saved.sizeBytes
+                    lastSaved = saved
+                }
+                job.jobDir.deleteRecursively()
+
+                val folderDisplayPath = "Download/!Download/$folderName"
+                job.status = "completed"
+                job.stage = "¡${outputFiles.size} archivos guardados en $folderName!"
+                job.percent = 100.0
+                job.speed = null
+                job.eta = 0L
+                job.completedItems = outputFiles.size
+                job.totalItems = outputFiles.size
+                job.filename = folderName
+                job.filesize = totalSize
+                job.savedPath = folderDisplayPath
+                notifySubscribers(job)
+
+                if (lastSaved != null) {
+                    DownloadForegroundService.postCompletedNotification(
+                        app,
+                        "${outputFiles.size} elementos · $folderName",
+                        job.qualityLabel,
+                        lastSaved.contentUri,
+                        lastSaved.mimeType,
+                    )
+                }
+                return
+            }
+
             val outputFile = findOutputFile(job.jobDir)
             job.stage = "Guardando en Descargas..."
             job.status = "processing"
@@ -348,6 +435,8 @@ class DownloadManagerEngine(private val app: DownloadApp) {
             job.percent = 100.0
             job.speed = null
             job.eta = 0L
+            job.completedItems = 1
+            job.totalItems = 1
             job.filename = saved.fileName
             job.filesize = saved.sizeBytes
             job.savedPath = saved.displayPath
@@ -384,7 +473,7 @@ class DownloadManagerEngine(private val app: DownloadApp) {
         }
     }
 
-    private fun findOutputFile(jobDir: File): File {
+    private fun findOutputFiles(jobDir: File): List<File> {
         val candidates = jobDir.listFiles()?.filter { file ->
             if (!file.isFile) return@filter false
             val ext = file.extension.lowercase(Locale.ROOT)
@@ -395,7 +484,14 @@ class DownloadManagerEngine(private val app: DownloadApp) {
                 !name.endsWith(".annotations.xml")
         }.orEmpty()
 
-        return candidates.maxByOrNull { it.length() }
+        if (candidates.isEmpty()) {
+            throw IllegalStateException("No se encontró el archivo resultante tras la descarga.")
+        }
+        return candidates.sortedBy { it.name.lowercase(Locale.ROOT) }
+    }
+
+    private fun findOutputFile(jobDir: File): File {
+        return findOutputFiles(jobDir).maxByOrNull { it.length() }
             ?: throw IllegalStateException("No se encontró el archivo resultante tras la descarga.")
     }
 

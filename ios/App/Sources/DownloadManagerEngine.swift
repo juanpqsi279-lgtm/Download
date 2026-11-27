@@ -13,6 +13,32 @@ final class DownloadManagerEngine {
         let audioBitrate: Int
         let embedMetadata: Bool
         let titleHint: String?
+        let isPlaylist: Bool
+        let playlistItems: [Int]?
+
+        init(
+            url: String,
+            mode: String,
+            height: Int?,
+            container: String,
+            audioFormat: String,
+            audioBitrate: Int,
+            embedMetadata: Bool,
+            titleHint: String?,
+            isPlaylist: Bool = false,
+            playlistItems: [Int]? = nil
+        ) {
+            self.url = url
+            self.mode = mode
+            self.height = height
+            self.container = container
+            self.audioFormat = audioFormat
+            self.audioBitrate = audioBitrate
+            self.embedMetadata = embedMetadata
+            self.titleHint = titleHint
+            self.isPlaylist = isPlaylist
+            self.playlistItems = playlistItems
+        }
     }
 
     final class JobRecord {
@@ -36,6 +62,8 @@ final class DownloadManagerEngine {
         var title: String?
         var error: String?
         var cancelled: Bool = false
+        var completedItems: Int = 0
+        var totalItems: Int = 1
         var subscribers: [(UUID, (String) -> Void)] = []
 
         init(jobId: String, req: JobRequest, jobDir: URL, qualityLabel: String, createdAt: Double) {
@@ -45,6 +73,7 @@ final class DownloadManagerEngine {
             self.qualityLabel = qualityLabel
             self.title = req.titleHint
             self.createdAt = createdAt
+            self.totalItems = req.isPlaylist ? (req.playlistItems?.count ?? 0) : 1
         }
 
         func toJsonDict() -> [String: Any] {
@@ -65,6 +94,9 @@ final class DownloadManagerEngine {
                 "quality_label": qualityLabel,
                 "error": error ?? NSNull(),
                 "created_at": createdAt,
+                "is_playlist": req.isPlaylist,
+                "completed_items": completedItems,
+                "total_items": totalItems,
             ]
         }
 
@@ -230,14 +262,19 @@ final class DownloadManagerEngine {
         }
 
         do {
-            let finalFile: URL
-            if job.req.mode == "video" {
-                finalFile = try executeVideoJob(job)
-            } else {
-                finalFile = try executeAudioJob(job)
+            if job.req.isPlaylist {
+                try executePlaylistJob(job)
+                return
             }
 
-            let savedURL = try moveUniqueToDocuments(finalFile, preferredName: finalFile.lastPathComponent)
+            let finalFile: URL
+            if job.req.mode == "video" {
+                finalFile = try executeVideoItem(job: job, workDir: job.jobDir, playlistIndex: nil)
+            } else {
+                finalFile = try executeAudioItem(job: job, workDir: job.jobDir, playlistIndex: nil)
+            }
+
+            let savedURL = try moveUnique(finalFile, toDir: Self.documentsDownloadDir(), preferredName: finalFile.lastPathComponent)
             try? FileManager.default.removeItem(at: job.jobDir)
 
             let attrs = try? FileManager.default.attributesOfItem(atPath: savedURL.path)
@@ -249,6 +286,8 @@ final class DownloadManagerEngine {
                 $0.percent = 100.0
                 $0.speed = nil
                 $0.eta = 0
+                $0.completedItems = 1
+                $0.totalItems = 1
                 $0.filename = savedURL.lastPathComponent
                 $0.filesize = size
                 $0.savedPath = "Archivos/!Download/\(savedURL.lastPathComponent)"
@@ -274,45 +313,143 @@ final class DownloadManagerEngine {
         }
     }
 
-    private func executeVideoJob(_ job: JobRecord) throws -> URL {
+    private func executePlaylistJob(_ job: JobRecord) throws {
+        let items = (job.req.playlistItems?.isEmpty == false) ? job.req.playlistItems! : Array(1...50)
+        let folderName = MediaParser.sanitizeFolderName(job.req.titleHint, fallback: "Playlist")
+        let destFolder = Self.documentsDownloadDir().appendingPathComponent(folderName, isDirectory: true)
+        try FileManager.default.createDirectory(at: destFolder, withIntermediateDirectories: true)
+
+        var totalSavedSize: Int64 = 0
+        var savedCount = 0
+        let total = items.count
+
+        for (offset, itemIdx) in items.enumerated() {
+            lock.lock()
+            let cancelledNow = job.cancelled
+            lock.unlock()
+            if cancelledNow {
+                throw CancellationError()
+            }
+
+            let pos = offset + 1
+            let itemWorkDir = job.jobDir.appendingPathComponent("item_\(itemIdx)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: itemWorkDir, withIntermediateDirectories: true)
+
+            let itemStage = "Elemento \(pos) de \(total)"
+            do {
+                let outputFile: URL
+                if job.req.mode == "video" {
+                    outputFile = try executeVideoItem(
+                        job: job,
+                        workDir: itemWorkDir,
+                        playlistIndex: itemIdx,
+                        progressPrefix: itemStage,
+                        overallBase: Double(offset) / Double(max(1, total)) * 100.0,
+                        overallSpan: 100.0 / Double(max(1, total))
+                    )
+                } else {
+                    outputFile = try executeAudioItem(
+                        job: job,
+                        workDir: itemWorkDir,
+                        playlistIndex: itemIdx,
+                        progressPrefix: itemStage,
+                        overallBase: Double(offset) / Double(max(1, total)) * 100.0,
+                        overallSpan: 100.0 / Double(max(1, total))
+                    )
+                }
+
+                let prefix = String(format: "%02d - ", pos)
+                let numberedName = prefix + outputFile.lastPathComponent
+                let destURL = try moveUnique(outputFile, toDir: destFolder, preferredName: numberedName)
+                let attrs = try? FileManager.default.attributesOfItem(atPath: destURL.path)
+                totalSavedSize += (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                savedCount += 1
+                updateJob(job) {
+                    $0.completedItems = savedCount
+                    $0.totalItems = total
+                    $0.percent = min(99.0, Double(pos) / Double(max(1, total)) * 100.0)
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Skip unavailable item in playlist and keep downloading remaining entries.
+            }
+            try? FileManager.default.removeItem(at: itemWorkDir)
+        }
+
+        try? FileManager.default.removeItem(at: job.jobDir)
+        guard savedCount > 0 else {
+            throw MediaValidationError.message("No se pudo descargar ningún elemento de la playlist.")
+        }
+
+        updateJob(job) {
+            $0.status = "completed"
+            $0.stage = "¡\(savedCount) archivos guardados en \(folderName)!"
+            $0.percent = 100.0
+            $0.speed = nil
+            $0.eta = 0
+            $0.completedItems = savedCount
+            $0.totalItems = total
+            $0.filename = folderName
+            $0.filesize = totalSavedSize
+            $0.savedPath = "Archivos/!Download/\(folderName)"
+            $0.savedFileURL = destFolder
+        }
+    }
+
+    private func executeVideoItem(
+        job: JobRecord,
+        workDir: URL,
+        playlistIndex: Int?,
+        progressPrefix: String? = nil,
+        overallBase: Double = 0.0,
+        overallSpan: Double = 100.0
+    ) throws -> URL {
         let selectors = MediaParser.buildVideoSelectors(height: job.req.height)
-        let videoDir = job.jobDir.appendingPathComponent("v", isDirectory: true)
-        let audioDir = job.jobDir.appendingPathComponent("a", isDirectory: true)
+        let videoDir = workDir.appendingPathComponent("v", isDirectory: true)
+        let audioDir = workDir.appendingPathComponent("a", isDirectory: true)
         try? FileManager.default.createDirectory(at: videoDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
 
+        let playlistFlags = playlistIndex.map { ["--yes-playlist", "--playlist-items", "\($0)"] }
+            ?? ["--no-playlist", "--playlist-items", "1"]
+
         let vOut = try runYtDlp(
             job: job,
-            args: [
-                "--newline", "--no-playlist", "--playlist-items", "1", "--no-mtime",
+            args: ["--newline"] + playlistFlags + [
+                "--no-mtime",
                 "-f", selectors.videoSelector,
                 "-o", videoDir.appendingPathComponent("%(title).90B.%(ext)s").path,
                 job.req.url,
             ],
-            stageLabel: "Descargando pista de video..."
+            stageLabel: progressPrefix.map { "\($0) · Descargando video..." } ?? "Descargando pista de video...",
+            overallBase: overallBase,
+            overallSpan: overallSpan
         )
 
         if vOut.code == 0, let videoFile = largestMediaFile(in: videoDir) {
             let aOut = try runYtDlp(
                 job: job,
-                args: [
-                    "--newline", "--no-playlist", "--playlist-items", "1", "--no-mtime",
+                args: ["--newline"] + playlistFlags + [
+                    "--no-mtime",
                     "-f", selectors.audioSelector,
                     "-o", audioDir.appendingPathComponent("audio.%(ext)s").path,
                     job.req.url,
                 ],
-                stageLabel: "Descargando pista de audio..."
+                stageLabel: progressPrefix.map { "\($0) · Descargando audio..." } ?? "Descargando pista de audio...",
+                overallBase: overallBase,
+                overallSpan: overallSpan
             )
             if aOut.code == 0, let audioFile = largestMediaFile(in: audioDir) {
                 updateJob(job) {
                     $0.status = "processing"
-                    $0.stage = "Uniendo video y audio..."
-                    $0.percent = 99.0
+                    $0.stage = progressPrefix.map { "\($0) · Uniendo video y audio..." } ?? "Uniendo video y audio..."
+                    if playlistIndex == nil { $0.percent = 99.0 }
                     $0.speed = nil
                     $0.eta = 0
                 }
                 let baseName = videoFile.deletingPathExtension().lastPathComponent
-                let mergedURL = job.jobDir.appendingPathComponent("\(baseName).mp4")
+                let mergedURL = workDir.appendingPathComponent("\(baseName).mp4")
                 try runAsyncBlocking {
                     try await AVMediaMuxer.muxVideoAndAudio(videoURL: videoFile, audioURL: audioFile, outputURL: mergedURL)
                 }
@@ -321,17 +458,19 @@ final class DownloadManagerEngine {
         }
 
         // Fallback for muxed streams (TikTok, Instagram, Twitter, etc.)
-        let muxedDir = job.jobDir.appendingPathComponent("m", isDirectory: true)
+        let muxedDir = workDir.appendingPathComponent("m", isDirectory: true)
         try? FileManager.default.createDirectory(at: muxedDir, withIntermediateDirectories: true)
         let mOut = try runYtDlp(
             job: job,
-            args: [
-                "--newline", "--no-playlist", "--playlist-items", "1", "--no-mtime",
+            args: ["--newline"] + playlistFlags + [
+                "--no-mtime",
                 "-f", selectors.muxedFallback,
                 "-o", muxedDir.appendingPathComponent("%(title).90B.%(ext)s").path,
                 job.req.url,
             ],
-            stageLabel: "Descargando video..."
+            stageLabel: progressPrefix.map { "\($0) · Descargando video..." } ?? "Descargando video...",
+            overallBase: overallBase,
+            overallSpan: overallSpan
         )
         guard mOut.code == 0, let file = largestMediaFile(in: muxedDir) else {
             throw MediaValidationError.message(mOut.errorMessage ?? "No se pudo descargar el video.")
@@ -339,19 +478,30 @@ final class DownloadManagerEngine {
         return file
     }
 
-    private func executeAudioJob(_ job: JobRecord) throws -> URL {
-        let audioDir = job.jobDir.appendingPathComponent("audio", isDirectory: true)
+    private func executeAudioItem(
+        job: JobRecord,
+        workDir: URL,
+        playlistIndex: Int?,
+        progressPrefix: String? = nil,
+        overallBase: Double = 0.0,
+        overallSpan: Double = 100.0
+    ) throws -> URL {
+        let audioDir = workDir.appendingPathComponent("audio", isDirectory: true)
         try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+        let playlistFlags = playlistIndex.map { ["--yes-playlist", "--playlist-items", "\($0)"] }
+            ?? ["--no-playlist", "--playlist-items", "1"]
 
         let out = try runYtDlp(
             job: job,
-            args: [
-                "--newline", "--no-playlist", "--playlist-items", "1", "--no-mtime",
+            args: ["--newline"] + playlistFlags + [
+                "--no-mtime",
                 "-f", "bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best",
                 "-o", audioDir.appendingPathComponent("%(title).90B.%(ext)s").path,
                 job.req.url,
             ],
-            stageLabel: "Descargando audio..."
+            stageLabel: progressPrefix.map { "\($0) · Descargando audio..." } ?? "Descargando audio...",
+            overallBase: overallBase,
+            overallSpan: overallSpan
         )
         guard out.code == 0, let rawFile = largestMediaFile(in: audioDir) else {
             throw MediaValidationError.message(out.errorMessage ?? "No se pudo descargar el audio.")
@@ -360,13 +510,13 @@ final class DownloadManagerEngine {
         if job.req.audioFormat == "m4a" && rawFile.pathExtension.lowercased() != "m4a" {
             updateJob(job) {
                 $0.status = "processing"
-                $0.stage = "Convirtiendo audio a M4A..."
-                $0.percent = 99.0
+                $0.stage = progressPrefix.map { "\($0) · Convirtiendo a M4A..." } ?? "Convirtiendo audio a M4A..."
+                if playlistIndex == nil { $0.percent = 99.0 }
                 $0.speed = nil
                 $0.eta = 0
             }
             let baseName = rawFile.deletingPathExtension().lastPathComponent
-            let m4aURL = job.jobDir.appendingPathComponent("\(baseName).m4a")
+            let m4aURL = workDir.appendingPathComponent("\(baseName).m4a")
             try runAsyncBlocking {
                 try await AVMediaMuxer.exportM4AAudio(sourceURL: rawFile, outputURL: m4aURL)
             }
@@ -375,7 +525,13 @@ final class DownloadManagerEngine {
         return rawFile
     }
 
-    private func runYtDlp(job: JobRecord, args: [String], stageLabel: String) throws -> YTDLP.Output {
+    private func runYtDlp(
+        job: JobRecord,
+        args: [String],
+        stageLabel: String,
+        overallBase: Double = 0.0,
+        overallSpan: Double = 100.0
+    ) throws -> YTDLP.Output {
         var lastEmit = Date(timeIntervalSince1970: 0)
         let out = try YTDLP.shared.run(args, id: job.jobId) { [weak self] line, _ in
             guard let self else { return }
@@ -387,12 +543,15 @@ final class DownloadManagerEngine {
                     self.updateJob(job) {
                         $0.status = "downloading"
                         $0.stage = stageLabel
-                        if let p = parsed.percent { $0.percent = min(99.0, p) }
+                        if let p = parsed.percent {
+                            let scaled = overallBase + (min(99.0, p) / 100.0) * overallSpan
+                            $0.percent = min(99.0, scaled)
+                        }
                         if let s = parsed.speed { $0.speed = s }
                         if let e = parsed.eta { $0.eta = e }
                         if let t = parsed.total {
                             $0.totalBytes = t
-                            $0.downloadedBytes = Int64(Double(t) * ($0.percent / 100.0))
+                            $0.downloadedBytes = Int64(Double(t) * ((parsed.percent ?? 0.0) / 100.0))
                         }
                     }
                 }
@@ -468,9 +627,8 @@ final class DownloadManagerEngine {
         }
     }
 
-    private func moveUniqueToDocuments(_ src: URL, preferredName: String) throws -> URL {
+    private func moveUnique(_ src: URL, toDir destDir: URL, preferredName: String) throws -> URL {
         let fm = FileManager.default
-        let destDir = Self.documentsDownloadDir()
         var target = destDir.appendingPathComponent(preferredName)
         if fm.fileExists(atPath: target.path) {
             let stem = (preferredName as NSString).deletingPathExtension

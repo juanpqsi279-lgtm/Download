@@ -48,6 +48,47 @@ object MediaParser {
     )
 
     private val AUDIO_BITRATES = listOf(320, 256, 192, 128, 96)
+    private val PLAYLIST_TARGET_HEIGHTS = listOf(2160, 1440, 1080, 720, 480, 360)
+    private val YOUTUBE_ID_REGEX = Regex("""^[A-Za-z0-9_-]{11}$""")
+
+    fun urlHasVideoAndList(rawUrl: String): Boolean {
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return false
+        val query = uri.rawQuery.orEmpty()
+        if (query.isBlank()) return false
+        val params = query.split("&").mapNotNull { pair ->
+            val eq = pair.indexOf('=')
+            if (eq > 0) pair.substring(0, eq) to pair.substring(eq + 1) else null
+        }.toMap()
+        val hasList = !params["list"].isNullOrBlank()
+        if (!hasList) return false
+        val path = uri.path.orEmpty().lowercase(Locale.ROOT)
+        return !params["v"].isNullOrBlank() || "/watch" in path
+    }
+
+    fun shouldExtractPlaylist(rawUrl: String, playlistMode: String = "auto"): Boolean {
+        val mode = playlistMode.lowercase(Locale.ROOT)
+        if (mode == "single") return false
+        if (mode == "playlist") return true
+        val uri = runCatching { URI(rawUrl.trim()) }.getOrNull() ?: return true
+        val query = uri.rawQuery.orEmpty()
+        val listVal = query.split("&").firstNotNullOfOrNull { pair ->
+            val eq = pair.indexOf('=')
+            if (eq > 0 && pair.substring(0, eq) == "list") pair.substring(eq + 1) else null
+        }.orEmpty()
+        if (urlHasVideoAndList(rawUrl) && listVal.uppercase(Locale.ROOT).startsWith("RD")) {
+            return false
+        }
+        return true
+    }
+
+    fun sanitizeFolderName(name: String?, fallback: String = "Playlist"): String {
+        val cleaned = (name ?: "").trim()
+            .replace(Regex("""[<>:"/\\|?*\u0000-\u001F]+"""), "_")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '.')
+        if (cleaned.isEmpty()) return fallback
+        return cleaned.take(90).trimEnd(' ', '.').ifEmpty { fallback }
+    }
 
     fun extractFirstUrl(sharedText: String?): String? {
         if (sharedText.isNullOrBlank()) return null
@@ -208,11 +249,26 @@ object MediaParser {
         else -> "${height}p" to "${height}p"
     }
 
-    fun parseMediaInfoJson(rawUrl: String, rawJson: String): JSONObject {
+    fun parseMediaInfoJson(
+        rawUrl: String,
+        rawJson: String,
+        canTogglePlaylist: Boolean = false,
+        playlistMode: String = "auto",
+    ): JSONObject {
         val cleanedUrl = validateUrl(rawUrl)
         var info = JSONObject(rawJson)
         if (info.optString("_type") == "playlist") {
             val entries = info.optJSONArray("entries")
+            val wantsPlaylist = shouldExtractPlaylist(cleanedUrl, playlistMode)
+            var nonNullCount = 0
+            if (entries != null) {
+                for (i in 0 until entries.length()) {
+                    if (entries.optJSONObject(i) != null) nonNullCount++
+                }
+            }
+            if (wantsPlaylist && (playlistMode == "playlist" || nonNullCount > 1 || !canTogglePlaylist)) {
+                return parsePlaylistInfoJson(cleanedUrl, info, canTogglePlaylist)
+            }
             var first: JSONObject? = null
             if (entries != null) {
                 for (i in 0 until entries.length()) {
@@ -431,6 +487,166 @@ object MediaParser {
             put("source_audio_codec", bestAudioCodec ?: JSONObject.NULL)
             put("subtitle_languages", subtitleLanguages)
             put("is_live", info.optBoolean("is_live", false))
+            put("is_playlist", false)
+            put("playlist_title", JSONObject.NULL)
+            put("playlist_count", 0)
+            put("playlist_entries", JSONArray())
+            put("can_toggle_playlist", canTogglePlaylist)
+        }
+    }
+
+    private fun extractEntryThumbnail(obj: JSONObject): String? {
+        optNonEmptyString(obj, "thumbnail")?.let { return it }
+        val thumbs = obj.optJSONArray("thumbnails") ?: return null
+        for (i in thumbs.length() - 1 downTo 0) {
+            val item = thumbs.optJSONObject(i) ?: continue
+            optNonEmptyString(item, "url")?.let { return it }
+        }
+        return null
+    }
+
+    private fun normalizeEntryUrl(entry: JSONObject): String? {
+        val raw = optNonEmptyString(entry, "webpage_url") ?: optNonEmptyString(entry, "url")
+        if (raw != null) {
+            if (raw.startsWith("http://") || raw.startsWith("https://")) return raw
+            if (YOUTUBE_ID_REGEX.matches(raw)) return "https://www.youtube.com/watch?v=$raw"
+        }
+        val entryId = optNonEmptyString(entry, "id")
+        if (entryId != null && YOUTUBE_ID_REGEX.matches(entryId)) {
+            return "https://www.youtube.com/watch?v=$entryId"
+        }
+        return null
+    }
+
+    private fun parsePlaylistInfoJson(
+        cleanedUrl: String,
+        info: JSONObject,
+        canTogglePlaylist: Boolean,
+    ): JSONObject {
+        val rawEntries = info.optJSONArray("entries") ?: JSONArray()
+        val playlistEntries = JSONArray()
+        var totalDuration = 0
+        var hasDuration = false
+        var firstThumb: String? = null
+        var firstUploader: String? = null
+
+        for (i in 0 until rawEntries.length()) {
+            val entry = rawEntries.optJSONObject(i) ?: continue
+            val rawTitle = optNonEmptyString(entry, "title").orEmpty()
+            if (rawTitle in setOf("[Private video]", "[Deleted video]", "[Unavailable video]")) {
+                continue
+            }
+            val oneBased = i + 1
+            val durDouble = optPositiveDouble(entry, "duration")
+            val durInt = durDouble?.roundToInt()
+            if (durInt != null) {
+                totalDuration += durInt
+                hasDuration = true
+            }
+            val thumb = extractEntryThumbnail(entry)
+            if (firstThumb == null && thumb != null) firstThumb = thumb
+            val uploader = optNonEmptyString(entry, "uploader")
+                ?: optNonEmptyString(entry, "channel")
+                ?: optNonEmptyString(entry, "creator")
+            if (firstUploader == null && uploader != null) firstUploader = uploader
+
+            playlistEntries.put(
+                JSONObject().apply {
+                    put("index", oneBased)
+                    put("id", optNonEmptyString(entry, "id") ?: JSONObject.NULL)
+                    put("title", rawTitle.ifEmpty { "Elemento $oneBased" })
+                    put("duration", durInt ?: JSONObject.NULL)
+                    put("duration_text", formatDuration(durDouble) ?: JSONObject.NULL)
+                    put("uploader", uploader ?: JSONObject.NULL)
+                    put("thumbnail", thumb ?: JSONObject.NULL)
+                    put("url", normalizeEntryUrl(entry) ?: JSONObject.NULL)
+                }
+            )
+        }
+
+        if (playlistEntries.length() == 0) {
+            throw IllegalArgumentException("La lista no contiene elementos disponibles.")
+        }
+
+        val playlistTitle = optNonEmptyString(info, "title") ?: "Playlist"
+        val playlistThumb = extractEntryThumbnail(info) ?: firstThumb
+        val playlistUploader = optNonEmptyString(info, "uploader")
+            ?: optNonEmptyString(info, "channel")
+            ?: optNonEmptyString(info, "creator")
+            ?: firstUploader
+
+        val videoOptions = JSONArray()
+        for (height in PLAYLIST_TARGET_HEIGHTS) {
+            val (label, tag) = resolutionLabels(height)
+            videoOptions.put(
+                JSONObject().apply {
+                    put("id", "h-$height")
+                    put("height", height)
+                    put("width", JSONObject.NULL)
+                    put("label", "Hasta $label")
+                    put("quality_tag", tag)
+                    put("fps", JSONObject.NULL)
+                    put("vcodec", JSONObject.NULL)
+                    put("dynamic_range", JSONObject.NULL)
+                    put("tbr", JSONObject.NULL)
+                    put("filesize_approx", JSONObject.NULL)
+                    put("has_audio", false)
+                }
+            )
+        }
+
+        val videoContainers = JSONArray().apply {
+            put(JSONObject().put("value", "mp4").put("label", "MP4").put("description", "Máxima compatibilidad"))
+            put(JSONObject().put("value", "mkv").put("label", "MKV").put("description", "Contenedor universal sin recodificar"))
+            put(JSONObject().put("value", "webm").put("label", "WebM").put("description", "Formato ligero web"))
+        }
+
+        val audioFormats = JSONArray().apply {
+            put(JSONObject().put("format", "mp3").put("label", "MP3").put("description", "Universal, funciona en cualquier reproductor").put("lossless", false))
+            put(JSONObject().put("format", "m4a").put("label", "M4A (AAC)").put("description", "Mejor calidad por bitrate, ideal para móvil").put("lossless", false))
+            put(JSONObject().put("format", "opus").put("label", "Opus").put("description", "Máxima eficiencia y fidelidad moderna").put("lossless", false))
+            put(JSONObject().put("format", "flac").put("label", "FLAC").put("description", "Sin pérdida comprimido (archivos grandes)").put("lossless", true))
+            put(JSONObject().put("format", "wav").put("label", "WAV").put("description", "Audio PCM sin compresión para edición").put("lossless", true))
+        }
+
+        val audioBitrates = JSONArray()
+        for (br in AUDIO_BITRATES) {
+            audioBitrates.put(
+                JSONObject().apply {
+                    put("bitrate", br)
+                    put("label", "$br kbps")
+                    put("estimated_bytes", JSONObject.NULL)
+                }
+            )
+        }
+
+        val extractor = optNonEmptyString(info, "extractor_key") ?: optNonEmptyString(info, "extractor")
+        return JSONObject().apply {
+            put("url", cleanedUrl)
+            put("title", playlistTitle)
+            put("uploader", playlistUploader ?: JSONObject.NULL)
+            put("duration", if (hasDuration) totalDuration else JSONObject.NULL)
+            put("duration_text", if (hasDuration) formatDuration(totalDuration.toDouble()) else JSONObject.NULL)
+            put("upload_date", formatUploadDate(optNonEmptyString(info, "upload_date")) ?: JSONObject.NULL)
+            put("like_count", JSONObject.NULL)
+            put("description", optNonEmptyString(info, "description") ?: JSONObject.NULL)
+            put("webpage_url", optNonEmptyString(info, "webpage_url") ?: cleanedUrl)
+            put("thumbnail", playlistThumb ?: JSONObject.NULL)
+            put("platform", formatPlatform(extractor))
+            put("view_count", JSONObject.NULL)
+            put("video_options", videoOptions)
+            put("video_containers", videoContainers)
+            put("audio_formats", audioFormats)
+            put("audio_bitrates", audioBitrates)
+            put("source_audio_abr", JSONObject.NULL)
+            put("source_audio_codec", JSONObject.NULL)
+            put("subtitle_languages", JSONArray())
+            put("is_live", false)
+            put("is_playlist", true)
+            put("playlist_title", playlistTitle)
+            put("playlist_count", playlistEntries.length())
+            put("playlist_entries", playlistEntries)
+            put("can_toggle_playlist", canTogglePlaylist)
         }
     }
 

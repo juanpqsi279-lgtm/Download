@@ -7,6 +7,7 @@ import shutil
 import threading
 import time
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,7 +22,13 @@ from app.config import (
     get_download_dir,
     is_desktop_mode,
 )
-from app.media_service import build_download_ydl_opts, find_output_file, move_to_unique_destination
+from app.media_service import (
+    build_download_ydl_opts,
+    find_output_file,
+    find_output_files,
+    move_to_unique_destination,
+    sanitize_folder_name,
+)
 from app.schemas import DownloadRequest, JobStatusResponse
 
 TERMINAL_STATUSES = {"completed", "error", "cancelled"}
@@ -92,6 +99,9 @@ class JobState:
     is_persistent_file: bool = False
     error: str | None = None
     output_path: Path | None = None
+    is_playlist: bool = False
+    completed_items: int = 0
+    total_items: int = 0
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -117,6 +127,9 @@ class JobState:
             quality_label=self.quality_label,
             error=self.error,
             created_at=self.created_at,
+            is_playlist=self.is_playlist,
+            completed_items=self.completed_items,
+            total_items=self.total_items,
         )
 
 
@@ -133,6 +146,11 @@ class JobManager:
         job_dir = DOWNLOADS_DIR / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
 
+        total_items = (
+            len({int(i) for i in (req.playlist_items or []) if 1 <= int(i) <= 1000})
+            if req.is_playlist
+            else 1
+        )
         job = JobState(
             job_id=job_id,
             request=req,
@@ -140,6 +158,8 @@ class JobManager:
             mode=req.mode,
             quality_label=_format_quality_label(req),
             title=req.title_hint,
+            is_playlist=req.is_playlist,
+            total_items=total_items,
         )
         with self._lock:
             self._jobs[job_id] = job
@@ -324,45 +344,71 @@ class JobManager:
             if status == "downloading":
                 downloaded = data.get("downloaded_bytes")
                 total = data.get("total_bytes") or data.get("total_bytes_estimate")
-                percent = 0.0
+                item_percent = 0.0
                 if isinstance(downloaded, (int, float)) and isinstance(total, (int, float)) and total > 0:
-                    percent = min(99.0, (float(downloaded) / float(total)) * 100.0)
-
-                if req.mode == "video":
-                    stage = (
-                        "Descargando pista de video..."
-                        if stream_index[0] <= 1
-                        else "Descargando pista de audio..."
-                    )
-                else:
-                    stage = "Descargando audio..."
+                    item_percent = min(99.0, (float(downloaded) / float(total)) * 100.0)
 
                 updates: dict[str, Any] = {
                     "status": "downloading",
-                    "stage": stage,
-                    "percent": percent,
                     "speed": data.get("speed"),
                     "eta": data.get("eta"),
                     "downloaded_bytes": int(downloaded) if isinstance(downloaded, (int, float)) else None,
                     "total_bytes": int(total) if isinstance(total, (int, float)) else None,
                 }
-                if title:
-                    updates["title"] = title
+
+                if req.is_playlist:
+                    item_num = int(info_dict.get("playlist_autonumber") or info_dict.get("autonumber") or 1)
+                    n_total = max(int(info_dict.get("n_entries") or 0), len(req.playlist_items or []), item_num, 1)
+                    overall = min(99.0, (((item_num - 1) + (item_percent / 100.0)) / float(n_total)) * 100.0)
+                    updates["percent"] = overall
+                    updates["completed_items"] = max(0, item_num - 1)
+                    updates["total_items"] = n_total
+                    item_title = f" · {title}" if title else ""
+                    updates["stage"] = f"Elemento {item_num} de {n_total}{item_title}"
+                else:
+                    if req.mode == "video":
+                        stage = (
+                            "Descargando pista de video..."
+                            if stream_index[0] <= 1
+                            else "Descargando pista de audio..."
+                        )
+                    else:
+                        stage = "Descargando audio..."
+                    updates["percent"] = item_percent
+                    updates["stage"] = stage
+                    if title:
+                        updates["title"] = title
                 self._update_job(job_id, last_emit=last_emit, **updates)
 
             elif status == "finished":
                 total = data.get("total_bytes") or data.get("downloaded_bytes")
-                updates = {
-                    "status": "processing",
-                    "stage": "Procesando archivo con FFmpeg...",
-                    "percent": 99.0,
-                    "speed": None,
-                    "eta": 0,
-                    "downloaded_bytes": int(total) if isinstance(total, (int, float)) else None,
-                    "total_bytes": int(total) if isinstance(total, (int, float)) else None,
-                }
-                if title:
-                    updates["title"] = title
+                if req.is_playlist:
+                    item_num = int(info_dict.get("playlist_autonumber") or info_dict.get("autonumber") or 1)
+                    n_total = max(int(info_dict.get("n_entries") or 0), len(req.playlist_items or []), item_num, 1)
+                    overall = min(99.0, (float(item_num) / float(n_total)) * 100.0)
+                    updates = {
+                        "status": "processing",
+                        "stage": f"Procesando elemento {item_num} de {n_total}...",
+                        "percent": overall,
+                        "completed_items": item_num,
+                        "total_items": n_total,
+                        "speed": None,
+                        "eta": 0,
+                        "downloaded_bytes": int(total) if isinstance(total, (int, float)) else None,
+                        "total_bytes": int(total) if isinstance(total, (int, float)) else None,
+                    }
+                else:
+                    updates = {
+                        "status": "processing",
+                        "stage": "Procesando archivo con FFmpeg...",
+                        "percent": 99.0,
+                        "speed": None,
+                        "eta": 0,
+                        "downloaded_bytes": int(total) if isinstance(total, (int, float)) else None,
+                        "total_bytes": int(total) if isinstance(total, (int, float)) else None,
+                    }
+                    if title:
+                        updates["title"] = title
                 self._update_job(job_id, force_notify=True, **updates)
 
         def postprocessor_hook(data: dict[str, Any]) -> None:
@@ -401,6 +447,63 @@ class JobManager:
             if cancel_event.is_set():
                 raise DownloadCancelledError("Descarga cancelada por el usuario.")
 
+            if req.is_playlist:
+                files = find_output_files(job_dir)
+                folder_name = sanitize_folder_name(
+                    (info.get("title") if isinstance(info, dict) else None) or req.title_hint or "Playlist"
+                )
+                is_persistent = False
+                saved_path: str | None = None
+
+                if is_desktop_mode():
+                    dest_folder = get_download_dir() / folder_name
+                    dest_folder.mkdir(parents=True, exist_ok=True)
+                    moved_files = [move_to_unique_destination(f, dest_folder) for f in files]
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                    is_persistent = True
+                    saved_path = str(dest_folder)
+                    filesize = sum(f.stat().st_size for f in moved_files)
+                    output_ref: Path = dest_folder
+                    filename_val = dest_folder.name
+                    count = len(moved_files)
+                    stage_msg = f"¡{count} archivos guardados en {dest_folder.name}!"
+                else:
+                    zip_path = job_dir / f"{folder_name}.zip"
+                    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as zf:
+                        for f in files:
+                            zf.write(f, arcname=f"{folder_name}/{f.name}")
+                    for f in files:
+                        f.unlink(missing_ok=True)
+                    filesize = zip_path.stat().st_size
+                    output_ref = zip_path
+                    filename_val = zip_path.name
+                    count = len(files)
+                    stage_msg = f"¡Playlist lista ({count} archivos en ZIP)!"
+
+                final_title = (
+                    (info.get("title") if isinstance(info, dict) else None)
+                    or req.title_hint
+                    or folder_name
+                )
+                self._update_job(
+                    job_id,
+                    force_notify=True,
+                    status="completed",
+                    stage=stage_msg,
+                    percent=100.0,
+                    speed=None,
+                    eta=0,
+                    title=final_title,
+                    filename=filename_val,
+                    filesize=filesize,
+                    saved_path=saved_path,
+                    is_persistent_file=is_persistent,
+                    output_path=output_ref,
+                    completed_items=count,
+                    total_items=count,
+                )
+                return
+
             if isinstance(info, dict) and info.get("_type") == "playlist":
                 entries = [entry for entry in (info.get("entries") or []) if entry]
                 if entries:
@@ -408,7 +511,7 @@ class JobManager:
 
             output_file = find_output_file(job_dir, last_postprocessed_file[0])
             is_persistent = False
-            saved_path: str | None = None
+            saved_path = None
 
             if is_desktop_mode():
                 output_file = move_to_unique_destination(output_file, get_download_dir())
@@ -437,6 +540,8 @@ class JobManager:
                 saved_path=saved_path,
                 is_persistent_file=is_persistent,
                 output_path=output_file,
+                completed_items=1,
+                total_items=1,
             )
 
         except DownloadCancelledError:
