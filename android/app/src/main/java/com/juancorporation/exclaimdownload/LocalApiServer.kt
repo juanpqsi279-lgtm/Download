@@ -368,7 +368,16 @@ class LocalApiServer(
         }
 
         if (method == "GET" && path == "/api/library/files") {
-            sendJson(output, 200, JSONObject().put("items", library.scanLibrary()).put("download_dir", "Download/!Download"))
+            val scope = parseQueryParam(query, "scope") ?: "all"
+            val hasPerm = MainActivity.currentActivity?.get()?.hasMediaReadPermission() ?: true
+            sendJson(
+                output,
+                200,
+                JSONObject()
+                    .put("items", library.scanLibrary(scope))
+                    .put("download_dir", "Download/!Download")
+                    .put("media_permission_granted", hasPerm),
+            )
             return
         }
 
@@ -408,6 +417,7 @@ class LocalApiServer(
         }
 
         if (method == "POST" && path == "/api/library/metadata/apply") {
+            runBlocking { withTimeoutOrNull(8000L) { app.ensureEngineReady() } }
             val req = JSONObject(bodyBytes.toString(StandardCharsets.UTF_8))
             try {
                 val updated = library.applyMetadata(req)

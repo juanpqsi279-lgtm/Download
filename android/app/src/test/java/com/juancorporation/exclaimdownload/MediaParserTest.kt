@@ -134,4 +134,25 @@ class MediaParserTest {
         assertEquals(1, entries.getJSONObject(0).getInt("index"))
         assertEquals(3, entries.getJSONObject(1).getInt("index"))
     }
+
+    @Test
+    fun `buildFfmpegLdLibraryPath includes ffmpeg and python lib dirs`() {
+        val tempRoot = java.nio.file.Files.createTempDirectory("ydl_pkgs").toFile()
+        try {
+            val ffmpegLib = java.io.File(tempRoot, "ffmpeg/usr/lib").apply { mkdirs() }
+            val pythonLib = java.io.File(tempRoot, "python/usr/lib").apply { mkdirs() }
+            val joined = MediaLibraryManager.buildFfmpegLdLibraryPath(
+                packagesRoot = tempRoot,
+                nativeLibDir = "/data/app/lib/arm64",
+                existingLdPath = "/vendor/lib64",
+            )
+            val parts = joined.split(":")
+            assertTrue(ffmpegLib.absolutePath in parts)
+            assertTrue(pythonLib.absolutePath in parts)
+            assertTrue("/data/app/lib/arm64" in parts)
+            assertTrue("/vendor/lib64" in parts)
+        } finally {
+            tempRoot.deleteRecursively()
+        }
+    }
 }

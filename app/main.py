@@ -31,15 +31,18 @@ from app.config import (
 )
 from app.jobs import TERMINAL_STATUSES, job_manager, translate_ytdlp_error
 from app.library_service import (
+    add_scan_folder,
     apply_audio_metadata,
     create_playlist,
     delete_playlist,
     extract_embedded_cover,
     guess_media_mime,
     is_allowed_media_path,
+    list_extra_folders,
     list_playlists,
     lookup_metadata_online,
     register_external_paths,
+    remove_scan_folder,
     save_uploaded_media,
     scan_library,
     update_playlist,
@@ -350,9 +353,29 @@ async def download_completed_file(job_id: str) -> FileResponse:
 
 
 @app.get("/api/library/files")
-async def api_library_files() -> dict[str, object]:
-    items = await asyncio.to_thread(scan_library)
-    return {"items": items, "download_dir": str(get_download_dir())}
+async def api_library_files(scope: str = Query(default="all")) -> dict[str, object]:
+    items = await asyncio.to_thread(scan_library, scope)
+    return {
+        "items": items,
+        "download_dir": str(get_download_dir()),
+        "extra_folders": list_extra_folders(),
+        "media_permission_granted": True,
+    }
+
+
+@app.post("/api/library/folders")
+async def api_library_add_folder(req: OpenPathRequest) -> dict[str, object]:
+    try:
+        folders = await asyncio.to_thread(add_scan_folder, req.path)
+        return {"extra_folders": folders}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/library/folders")
+async def api_library_remove_folder(path: str = Query(..., min_length=1, max_length=1024)) -> dict[str, object]:
+    folders = await asyncio.to_thread(remove_scan_folder, path)
+    return {"extra_folders": folders}
 
 
 @app.post("/api/library/register")

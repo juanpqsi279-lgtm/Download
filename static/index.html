@@ -595,7 +595,7 @@
                   <svg class="play-glyph" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M8 5.14v14l11-7-11-7Z" />
                   </svg>
-                  <svg class="pause-glyph" viewBox="0 0 24 24" fill="currentColor" hidden>
+                  <svg class="pause-glyph" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M7 5h3.5v14H7zm6.5 0H17v14h-3.5z" />
                   </svg>
                 </button>
@@ -628,9 +628,11 @@
                 </div>
 
                 <div class="player-utility-pills">
+                  <button type="button" class="apple-secondary-pill" id="playerFavBtn" title="Marcar como favorita">♡ Favorita</button>
                   <button type="button" class="apple-secondary-pill" id="playerSpeedBtn" title="Velocidad de reproducción">1.0x</button>
                   <button type="button" class="apple-secondary-pill" id="playerSleepBtn" title="Temporizador de apagado">Temporizador</button>
                   <button type="button" class="apple-secondary-pill" id="playerAbBtn" title="Bucle A-B entre dos puntos">Bucle A-B</button>
+                  <button type="button" class="apple-secondary-pill" id="playerQueueBtn" title="Ver cola de reproducción">Cola</button>
                   <button type="button" class="apple-blue-pill" id="playerTagCurrentBtn" title="Aplicar metadatos a esta canción" hidden>Metadatos</button>
                 </div>
               </div>
@@ -645,13 +647,31 @@
             <button type="button" class="segmented-btn" data-player-tab="customize">Estilo</button>
           </div>
 
-          <!-- SUB-TAB 1: BIBLIOTECA -->
+          <!-- SUB-TAB 1: BIBLIOTECA Y EXPLORADOR -->
           <section class="player-subpanel" id="playerTabLibrary" data-player-panel="library">
             <div class="library-toolbar apple-card">
               <div class="library-search-row">
-                <input type="search" id="librarySearchInput" class="apple-text-input" placeholder="Buscar canción, artista, álbum o video..." aria-label="Buscar en biblioteca">
-                <button type="button" class="apple-secondary-pill" id="refreshLibraryBtn" title="Volver a escanear carpeta">Actualizar</button>
+                <input type="search" id="librarySearchInput" class="apple-text-input" placeholder="Buscar canción, álbum, artista o carpeta..." aria-label="Buscar en biblioteca">
+                <select id="librarySortSelect" class="apple-select-pill" aria-label="Ordenar biblioteca">
+                  <option value="recent">Más recientes</option>
+                  <option value="title">Título (A–Z)</option>
+                  <option value="artist">Artista</option>
+                  <option value="album">Álbum</option>
+                  <option value="duration">Duración</option>
+                </select>
+                <button type="button" class="apple-secondary-pill" id="refreshLibraryBtn" title="Volver a escanear dispositivo">Actualizar</button>
               </div>
+
+              <div class="library-view-row">
+                <div class="scope-pills" id="libraryViewPills">
+                  <button type="button" class="apple-blue-pill" data-lib-view="tracks">Canciones</button>
+                  <button type="button" class="apple-secondary-pill" data-lib-view="albums">Álbumes</button>
+                  <button type="button" class="apple-secondary-pill" data-lib-view="folders">Carpetas</button>
+                  <button type="button" class="apple-secondary-pill" data-lib-view="favorites">Favoritos</button>
+                </div>
+                <button type="button" class="apple-secondary-pill" id="libraryScopeBtn" title="Alternar entre todo el dispositivo y descargas de la app">Todo el dispositivo</button>
+              </div>
+
               <div class="library-filters-row">
                 <div class="scope-pills" id="libraryKindPills">
                   <button type="button" class="apple-blue-pill" data-lib-filter="all">Todo</button>
@@ -659,9 +679,55 @@
                   <button type="button" class="apple-secondary-pill" data-lib-filter="video">Video</button>
                 </div>
                 <div class="library-import-actions">
-                  <button type="button" class="apple-secondary-pill" id="importMediaBtn">+ Importar archivo</button>
-                  <button type="button" class="apple-blue-pill" id="tagExternalBtn">Aplicar metadatos a externa</button>
+                  <button type="button" class="apple-secondary-pill" id="addScanFolderBtn" hidden>+ Carpeta</button>
+                  <button type="button" class="apple-secondary-pill" id="importMediaBtn">+ Importar</button>
+                  <button type="button" class="apple-blue-pill" id="tagExternalBtn">Metadatos externa</button>
                   <input type="file" id="importMediaInput" multiple accept="audio/*,video/*" hidden>
+                </div>
+              </div>
+            </div>
+
+            <!-- Android Storage Permission Banner -->
+            <div class="apple-card perm-banner" id="androidMediaPermBanner" hidden>
+              <div>
+                <strong>Detección automática de música y video</strong>
+                <p>Permite leer el almacenamiento multimedia para listar tus álbumes y canciones guardadas en el teléfono.</p>
+              </div>
+              <button type="button" class="apple-blue-pill" id="grantAndroidPermBtn">Permitir acceso</button>
+            </div>
+
+            <!-- File Explorer View (Carpetas) -->
+            <div class="explorer-shell" id="folderBrowserView" hidden>
+              <div class="explorer-head apple-card">
+                <div class="explorer-breadcrumbs" id="folderBreadcrumbs"></div>
+                <div class="playlist-detail-actions">
+                  <button type="button" class="apple-blue-pill" id="playFolderAllBtn" hidden>Reproducir carpeta</button>
+                  <button type="button" class="apple-secondary-pill" id="playFolderShuffleBtn" hidden>Aleatorio</button>
+                </div>
+              </div>
+              <div class="folder-cards-grid" id="folderCardsGrid"></div>
+              <div class="inset-group" id="folderTracksGroup" hidden>
+                <div class="inset-group-inner" id="folderTracksList"></div>
+              </div>
+            </div>
+
+            <!-- Albums Grid & Album Detail View -->
+            <div class="albums-shell" id="albumsBrowserView" hidden>
+              <div class="albums-cards-grid" id="albumsCardsGrid"></div>
+              <div class="album-detail-shell" id="albumDetailView" hidden>
+                <div class="apple-card album-detail-head">
+                  <button type="button" class="apple-secondary-pill" id="albumBackBtn">← Álbumes</button>
+                  <div class="album-detail-meta">
+                    <h3 id="albumDetailTitle">Álbum</h3>
+                    <span id="albumDetailSub"></span>
+                  </div>
+                  <div class="playlist-detail-actions">
+                    <button type="button" class="apple-blue-pill" id="playAlbumAllBtn">Reproducir álbum</button>
+                    <button type="button" class="apple-secondary-pill" id="playAlbumShuffleBtn">Aleatorio</button>
+                  </div>
+                </div>
+                <div class="inset-group" id="albumTracksGroup">
+                  <div class="inset-group-inner" id="albumTracksList"></div>
                 </div>
               </div>
             </div>
@@ -678,8 +744,8 @@
                   <circle cx="18" cy="16" r="3" />
                 </svg>
               </span>
-              <h3>Tu biblioteca está vacía</h3>
-              <p>Las descargas que hagas en !Download aparecerán aquí, o pulsa <strong>+ Importar archivo</strong> para cargar música o videos que ya tengas en tu dispositivo.</p>
+              <h3>Sin archivos multimedia visibles</h3>
+              <p>Descarga música o videos en !Download, usa <strong>+ Importar</strong> o permite escanear las carpetas Música / Descargas de tu dispositivo.</p>
             </div>
           </section>
 
@@ -892,7 +958,7 @@
             <div class="settings-hero">
             <img src="/static/icon.png" alt="!Download" width="60" height="60">
             <h2>!Download</h2>
-            <p id="modalVersionSub">v1.6.0 · Juan Corporation</p>
+            <p id="modalVersionSub">v1.6.1 · Juan Corporation</p>
           </div>
 
           <div class="inset-section">
@@ -1059,6 +1125,23 @@
       <div class="modal-sheet-foot">
         <button type="button" class="apple-secondary-pill" id="metaPickOtherFileBtn">Elegir otra canción</button>
         <button type="button" class="apple-primary-cta compact-cta" id="metaApplyBtn">Aplicar metadatos al archivo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue Sheet Modal -->
+  <div class="apple-modal-backdrop" id="queueModal" hidden>
+    <div class="apple-modal-sheet apple-card spring-reveal modal-compact" role="dialog" aria-modal="true" aria-labelledby="queueModalTitle">
+      <div class="modal-sheet-head">
+        <div>
+          <h3 id="queueModalTitle">Cola de reproducción</h3>
+          <p class="modal-sheet-sub" id="queueCountSub">0 elementos en cola</p>
+        </div>
+        <button type="button" class="sheet-circle-btn modal-close-btn" id="closeQueueModalBtn" aria-label="Cerrar cola">✕</button>
+      </div>
+      <div class="inset-group queue-list-group" id="queueList"></div>
+      <div class="modal-sheet-foot">
+        <button type="button" class="apple-secondary-pill" id="clearQueueBtn">Limpiar cola</button>
       </div>
     </div>
   </div>

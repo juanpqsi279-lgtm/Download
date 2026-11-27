@@ -594,4 +594,75 @@ def test_library_playlists_upload_stream_and_metadata_tagging(tmp_path: Path, mo
         assert client.get("/api/library/playlists").json()["playlists"] == []
 
 
+def test_wav_sidecar_cover_and_device_folder_discovery(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+    from app import library_service as lib
+    from app.config import resolve_binary
+
+    monkeypatch.setattr(lib, "USER_DATA_DIR", tmp_path / "userdata")
+    monkeypatch.setattr(lib, "IMPORTED_MEDIA_DIR", tmp_path / "userdata" / "imported_media")
+    monkeypatch.setattr(lib, "LIBRARY_REGISTRY_FILE", tmp_path / "userdata" / "library_registry.json")
+    monkeypatch.setattr(lib, "PLAYLISTS_FILE", tmp_path / "userdata" / "playlists.json")
+    dl_dir = tmp_path / "downloads"
+    album_dir = dl_dir / "El Buen Ejemplo"
+    album_dir.mkdir(parents=True)
+    device_music = tmp_path / "DeviceMusic"
+    device_music.mkdir()
+    monkeypatch.setattr(lib, "get_download_dir", lambda: dl_dir)
+    monkeypatch.setattr(lib, "get_device_media_dirs", lambda: [(device_music, "Música")])
+
+    ffmpeg = resolve_binary("ffmpeg")
+    assert ffmpeg is not None
+    wav_path = album_dir / "Aguaje Activado.wav"
+    proc = subprocess.run(
+        [ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.3", str(wav_path)],
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0 and wav_path.is_file()
+
+    dev_mp3 = device_music / "Externo.mp3"
+    proc2 = subprocess.run(
+        [ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.3", "-q:a", "9", str(dev_mp3)],
+        capture_output=True,
+        check=False,
+    )
+    assert proc2.returncode == 0 and dev_mp3.is_file()
+
+    with TestClient(app) as client:
+        tiny_png_b64 = (
+            "data:image/png;base64,"
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2Z0AAAAASUVORK5CYII="
+        )
+        tag_resp = client.post(
+            "/api/library/metadata/apply",
+            json={
+                "path": str(wav_path),
+                "title": "Aguaje Activado",
+                "artist": "Calibre 50",
+                "album": "El Buen Ejemplo",
+                "year": "2012",
+                "cover_base64": tiny_png_b64,
+            },
+        )
+        assert tag_resp.status_code == 200
+        tagged = tag_resp.json()["item"]
+        assert tagged["has_cover"] is True
+
+        cov_resp = client.get("/api/library/cover", params={"path": str(wav_path)})
+        assert cov_resp.status_code == 200
+        assert cov_resp.headers["content-type"].startswith("image/")
+
+        all_items = client.get("/api/library/files", params={"scope": "all"}).json()["items"]
+        paths = {it["path"] for it in all_items}
+        assert str(wav_path.resolve()) in paths
+        assert str(dev_mp3.resolve()) in paths
+
+        app_items = client.get("/api/library/files", params={"scope": "app"}).json()["items"]
+        app_paths = {it["path"] for it in app_items}
+        assert str(wav_path.resolve()) in app_paths
+        assert str(dev_mp3.resolve()) not in app_paths
+
+
+
 

@@ -10,11 +10,11 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Windows (10 / 11)
 
-- **Opción 1 — Instalador (`Download-Setup-v1.6.0.exe`):**
-  1. Descarga **`Download-Setup-v1.6.0.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
+- **Opción 1 — Instalador (`Download-Setup-v1.6.1.exe`):**
+  1. Descarga **`Download-Setup-v1.6.1.exe`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest).
   2. Ejecuta el instalador para crear los accesos directos y activar auto-actualizaciones.
-- **Opción 2 — Portable (`Download-Portable-v1.6.0.zip`):**
-  1. Descarga y descomprime **`Download-Portable-v1.6.0.zip`**.
+- **Opción 2 — Portable (`Download-Portable-v1.6.1.zip`):**
+  1. Descarga y descomprime **`Download-Portable-v1.6.1.zip`**.
   2. Abre **`!Download.exe`**.
 - **Opción 3 — Ejecutar desde código fuente (recomendado si Windows bloquea el `.exe`):**
   1. Clona o descarga este repositorio.
@@ -27,20 +27,20 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Linux (`x86_64` / `amd64`)
 
-- **Opción 1 — AppImage universal (`Download-v1.6.0-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
+- **Opción 1 — AppImage universal (`Download-v1.6.1-linux-x86_64.AppImage`) *(soporta auto-actualizaciones)*:**
   ```bash
-  chmod +x Download-v1.6.0-linux-x86_64.AppImage
-  ./Download-v1.6.0-linux-x86_64.AppImage
+  chmod +x Download-v1.6.1-linux-x86_64.AppImage
+  ./Download-v1.6.1-linux-x86_64.AppImage
   ```
-  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.6.0-linux-x86_64.AppImage --appimage-extract-and-run`.
-- **Opción 2 — Paquete `.deb` (`Download-v1.6.0-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
+  > Si en Ubuntu 22.04/24.04 aparece un error de FUSE2, instala `sudo apt install libfuse2t64` (o `libfuse2`) o ejecútalo con `./Download-v1.6.1-linux-x86_64.AppImage --appimage-extract-and-run`.
+- **Opción 2 — Paquete `.deb` (`Download-v1.6.1-linux-amd64.deb`) *(Debian, Ubuntu, Linux Mint, Pop!_OS)*:**
   ```bash
-  sudo apt install ./Download-v1.6.0-linux-amd64.deb
+  sudo apt install ./Download-v1.6.1-linux-amd64.deb
   ```
   Luego ábrelo desde tu menú de aplicaciones o ejecutando `exclaim-download` en terminal.
-- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.6.0-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
+- **Opción 3 — Portable `.tar.gz` (`Download-Portable-v1.6.1-linux-x86_64.tar.gz`) *(soporta auto-actualizaciones)*:**
   ```bash
-  tar -xzf Download-Portable-v1.6.0-linux-x86_64.tar.gz
+  tar -xzf Download-Portable-v1.6.1-linux-x86_64.tar.gz
   ./exclaim-download/exclaim-download
   ```
   Si deseas agregar acceso directo al menú del sistema, ejecuta `./exclaim-download/install-desktop.sh`.
@@ -56,8 +56,8 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ### Android (`.apk` todo incluido)
 
-- **`Download-v1.6.0-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
-- **`Download-v1.6.0-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
+- **`Download-v1.6.1-android-arm64.apk`**: recomendado para casi todos los teléfonos Android modernos (`arm64-v8a`, más ligero).
+- **`Download-v1.6.1-android-universal.apk`**: compatible con cualquier arquitectura (`arm64-v8a`, `armeabi-v7a`, `x86_64`).
 
 **Pasos de instalación:**
 1. Descarga el `.apk` desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest) en tu teléfono.
@@ -67,7 +67,7 @@ Aplicación de escritorio, móvil y web local desarrollada por **Juan Corporatio
 
 ---
 
-### iPhone / iPad (`Download-v1.6.0-ios.ipa` + SideStore / AltStore)
+### iPhone / iPad (`Download-v1.6.1-ios.ipa` + SideStore / AltStore)
 
 En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID (con **SideStore** solo necesitas conectar tu iPhone a una PC **una única vez**; después actualizas `!Download` directo en tu iPhone sin PC). Tus descargas se guardan en la app **Archivos → En mi iPhone → `!Download`**.
 
@@ -82,7 +82,7 @@ En iOS, los archivos `.ipa` fuera de la App Store deben firmarse con tu Apple ID
 
 - **Opción 2 — [Sideloadly](https://sideloadly.io/) *(desde PC/Mac)*:**
   1. Descarga Sideloadly (**https://sideloadly.io/**). En Windows usa las versiones **web** de iTunes e iCloud.
-  2. Descarga **`Download-v1.6.0-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest), arrástralo a Sideloadly, escribe tu Apple ID y pulsa **Start**.
+  2. Descarga **`Download-v1.6.1-ios.ipa`** desde [Releases](https://github.com/juanpqsi279-lgtm/Download/releases/latest), arrástralo a Sideloadly, escribe tu Apple ID y pulsa **Start**.
   3. En tu iPhone (primera vez): activa *Ajustes → Privacidad y seguridad → Modo de desarrollador* y confía en tu perfil en *Ajustes → General → VPN y gestión de dispositivos*.
 
 - **Opción 3 — [AltStore](https://altstore.io/) / [TrollStore](https://github.com/opa334/TrollStore) / Safari PWA:**
@@ -160,7 +160,7 @@ cd ios && xcodegen generate
 El flujo [release.yml](.github/workflows/release.yml) ejecuta las pruebas, compila los ejecutables y paquetes de **Windows**, **Linux**, **Android** e **iOS**, verifica `--self-check` y publica todos los archivos automáticamente (incluido `altstore-source.json`) al subir una etiqueta `v*`:
 
 ```bash
-git tag v1.6.0 && git push origin v1.6.0
+git tag v1.6.1 && git push origin v1.6.1
 ```
 
 ## Licencia

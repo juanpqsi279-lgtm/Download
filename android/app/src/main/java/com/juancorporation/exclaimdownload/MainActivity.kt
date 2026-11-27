@@ -144,7 +144,20 @@ class MainActivity : AppCompatActivity() {
         extractShareIntentUrl(intent)
         val serverPort = DownloadApp.instance.localServer.port
         webView.loadUrl("http://127.0.0.1:$serverPort/")
-        requestNotificationPermissionIfNeeded()
+        requestStartupPermissionsIfNeeded()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1002 && pageLoaded) {
+            webView.post {
+                webView.evaluateJavascript("if (window.ExclaimPlayer && window.ExclaimPlayer.refreshLibrary) { window.ExclaimPlayer.refreshLibrary(); }", null)
+            }
+        }
     }
 
     override fun onResume() {
@@ -205,17 +218,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    fun hasMediaReadPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun requiredMediaPermissions(): Array<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
+        } else {
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+    }
+
+    private fun requestStartupPermissionsIfNeeded() {
+        val perms = mutableListOf<String>()
         if (
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (!hasMediaReadPermission()) {
+            perms.addAll(requiredMediaPermissions())
+        }
+        if (perms.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, perms.toTypedArray(), 1002)
         }
     }
 
     inner class AndroidBridge {
+        @JavascriptInterface
+        fun hasMediaPermission(): Boolean = hasMediaReadPermission()
+
+        @JavascriptInterface
+        fun requestMediaPermission() {
+            runOnUiThread {
+                ActivityCompat.requestPermissions(this@MainActivity, requiredMediaPermissions(), 1002)
+            }
+        }
+
         @JavascriptInterface
         fun setSystemBarTheme(theme: String) {
             applySystemBarTheme(theme)

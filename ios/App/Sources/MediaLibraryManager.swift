@@ -25,8 +25,19 @@ final class MediaLibraryManager {
     private let lock = NSLock()
     private var metadataCache: [String: [String: Any]] = [:]
 
+    private func documentsRootDir() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? DownloadManagerEngine.documentsDownloadDir()
+    }
+
     private func importedDir() -> URL {
         let dir = DownloadManagerEngine.documentsDownloadDir().appendingPathComponent("Importados", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func coversDir() -> URL {
+        let dir = DownloadManagerEngine.documentsDownloadDir().appendingPathComponent(".covers", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -35,10 +46,55 @@ final class MediaLibraryManager {
         DownloadManagerEngine.documentsDownloadDir().appendingPathComponent(".playlists.json")
     }
 
+    private func stableHashKey(_ text: String) -> String {
+        var h1: UInt64 = 14695981039346656037
+        for b in text.utf8 {
+            h1 ^= UInt64(b)
+            h1 = h1 &* 1099511628211
+        }
+        return String(format: "%016llx", h1)
+    }
+
+    private func sidecarCoverURL(for path: String) -> URL? {
+        let key = stableHashKey(path)
+        for ext in ["jpg", "png"] {
+            let u = coversDir().appendingPathComponent("\(key).\(ext)")
+            if FileManager.default.fileExists(atPath: u.path) { return u }
+        }
+        return nil
+    }
+
+    private func saveSidecarCover(for path: String, data: Data, mime: String) {
+        let key = stableHashKey(path)
+        let fm = FileManager.default
+        try? fm.removeItem(at: coversDir().appendingPathComponent("\(key).jpg"))
+        try? fm.removeItem(at: coversDir().appendingPathComponent("\(key).png"))
+        let ext = mime.lowercased().contains("png") ? "png" : "jpg"
+        try? data.write(to: coversDir().appendingPathComponent("\(key).\(ext)"))
+    }
+
+    private func sidecarMetaURL(for path: String) -> URL {
+        coversDir().appendingPathComponent("\(stableHashKey(path)).meta.json")
+    }
+
+    private func saveSidecarTags(for path: String, dict: [String: String]) {
+        if let data = try? JSONSerialization.data(withJSONObject: dict) {
+            try? data.write(to: sidecarMetaURL(for: path))
+        }
+    }
+
+    private func loadSidecarTags(for path: String) -> [String: String] {
+        guard let data = try? Data(contentsOf: sidecarMetaURL(for: path)),
+              let parsed = (try? JSONSerialization.jsonObject(with: data)) as? [String: String] else {
+            return [:]
+        }
+        return parsed
+    }
+
     func scanLibrary() -> [[String: Any]] {
-        let root = DownloadManagerEngine.documentsDownloadDir()
+        let root = documentsRootDir()
         var items: [[String: Any]] = []
-        collectMedia(in: root, root: root, depth: 0, maxDepth: 3, into: &items)
+        collectMedia(in: root, root: root, depth: 0, maxDepth: 4, into: &items)
         items.sort { (($0["mtime"] as? Double) ?? 0.0) > (($1["mtime"] as? Double) ?? 0.0) }
         return items
     }
@@ -61,19 +117,23 @@ final class MediaLibraryManager {
             } else if vals?.isRegularFile == true {
                 let ext = entry.pathExtension.lowercased()
                 guard Self.mediaExts.contains(ext) else { continue }
-                let relParent = dir.path == root.path ? nil : dir.lastPathComponent
-                let source = (relParent == "Importados") ? "imported" : "downloaded"
-                let group = (relParent != nil && relParent != "Importados") ? relParent : nil
+                let relPath = dir.path.replacingOccurrences(of: root.path, with: "").trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let folderPath = relPath.isEmpty ? "Archivos" : relPath
+                let group = dir.path == root.path ? nil : dir.lastPathComponent
+                let source: String
+                if folderPath.contains("Importados") { source = "imported" }
+                else if folderPath.contains("!Download") { source = "downloaded" }
+                else { source = "device" }
                 let size = Int64(vals?.fileSize ?? 0)
                 let mtime = vals?.contentModificationDate?.timeIntervalSince1970 ?? 0.0
-                items.append(buildItemDict(url: entry, ext: ext, size: size, mtime: mtime, source: source, folderGroup: group))
+                items.append(buildItemDict(url: entry, ext: ext, size: size, mtime: mtime, source: source, folderPath: folderPath, folderGroup: group))
             }
         }
     }
 
     func resolveAllowedFile(_ pathStr: String) -> URL? {
         guard !pathStr.isEmpty else { return nil }
-        let root = DownloadManagerEngine.documentsDownloadDir().standardizedFileURL
+        let root = documentsRootDir().standardizedFileURL
         let target = URL(fileURLWithPath: pathStr).standardizedFileURL
         guard target.path == root.path || target.path.hasPrefix(root.path + "/") else { return nil }
         guard FileManager.default.fileExists(atPath: target.path) else { return nil }
@@ -111,7 +171,7 @@ final class MediaLibraryManager {
         let attrs = try? fm.attributesOfItem(atPath: target.path)
         let size = (attrs?[.size] as? NSNumber)?.int64Value ?? Int64(data.count)
         let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
-        return buildItemDict(url: target, ext: ext, size: size, mtime: mtime, source: "imported", folderGroup: nil)
+        return buildItemDict(url: target, ext: ext, size: size, mtime: mtime, source: "imported", folderPath: "!Download/Importados", folderGroup: "Importados")
     }
 
     func streamMedia(path: String, rangeHeader: String?, conn: NWConnection) -> Bool {
@@ -179,11 +239,22 @@ final class MediaLibraryManager {
 
     func extractCover(path: String) -> (Data, String)? {
         guard let fileURL = resolveAllowedFile(path) else { return nil }
+        if let sidecar = sidecarCoverURL(for: fileURL.path), let data = try? Data(contentsOf: sidecar) {
+            let mime = sidecar.pathExtension == "png" ? "image/png" : "image/jpeg"
+            return (data, mime)
+        }
         let asset = AVURLAsset(url: fileURL)
         for item in asset.commonMetadata {
             if item.commonKey == .commonKeyArtwork, let data = item.dataValue, !data.isEmpty {
                 let isPng = data.starts(with: [0x89, 0x50, 0x4E, 0x47])
                 return (data, isPng ? "image/png" : "image/jpeg")
+            }
+        }
+        let parent = fileURL.deletingLastPathComponent()
+        for cname in ["cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png"] {
+            let cURL = parent.appendingPathComponent(cname)
+            if let data = try? Data(contentsOf: cURL), !data.isEmpty {
+                return (data, cname.hasSuffix(".png") ? "image/png" : "image/jpeg")
             }
         }
         return nil
@@ -215,7 +286,7 @@ final class MediaLibraryManager {
         }
 
         var req = URLRequest(url: url, timeoutInterval: 10)
-        req.setValue("!Download-Metadata/1.6.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("!Download-Metadata/1.6.1", forHTTPHeaderField: "User-Agent")
 
         let sem = DispatchSemaphore(value: 0)
         var out: [[String: Any]] = []
@@ -280,6 +351,18 @@ final class MediaLibraryManager {
         let coverBase64 = req["cover_base64"] as? String
         let cover = try fetchCoverData(coverUrl: coverUrl, coverBase64: coverBase64)
 
+        if let cover {
+            saveSidecarCover(for: fileURL.path, data: cover.0, mime: cover.1)
+        }
+        saveSidecarTags(for: fileURL.path, dict: [
+            "title": title ?? "",
+            "artist": artist ?? "",
+            "album": album ?? "",
+            "year": year ?? "",
+            "genre": genre ?? "",
+            "track": track ?? "",
+        ])
+
         let tmpOut = fileURL.deletingLastPathComponent().appendingPathComponent("\(fileURL.deletingPathExtension().lastPathComponent).tagging_tmp.\(ext)")
         let fm = FileManager.default
         defer { try? fm.removeItem(at: tmpOut) }
@@ -296,6 +379,7 @@ final class MediaLibraryManager {
                 track: track,
                 cover: cover
             )
+            _ = try fm.replaceItemAt(fileURL, withItemAt: tmpOut)
         } else if ext == "m4a" || ext == "aac" {
             let asset = AVURLAsset(url: fileURL)
             guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) else {
@@ -328,14 +412,11 @@ final class MediaLibraryManager {
             let sem = DispatchSemaphore(value: 0)
             session.exportAsynchronously { sem.signal() }
             sem.wait()
-            guard session.status == .completed else {
-                throw MediaValidationError.message(session.error?.localizedDescription ?? "Error al guardar metadatos M4A.")
+            if session.status == .completed {
+                _ = try fm.replaceItemAt(fileURL, withItemAt: tmpOut)
             }
-        } else {
-            throw MediaValidationError.message("En iOS la edición directa de metadatos soporta archivos .mp3 y .m4a.")
         }
 
-        _ = try fm.replaceItemAt(fileURL, withItemAt: tmpOut)
         lock.lock()
         metadataCache.removeValue(forKey: fileURL.path)
         lock.unlock()
@@ -345,7 +426,7 @@ final class MediaLibraryManager {
         let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
         let relParent = fileURL.deletingLastPathComponent().lastPathComponent
         let source = relParent == "Importados" ? "imported" : "downloaded"
-        return buildItemDict(url: fileURL, ext: ext, size: size, mtime: mtime, source: source, folderGroup: nil)
+        return buildItemDict(url: fileURL, ext: ext, size: size, mtime: mtime, source: source, folderPath: relParent, folderGroup: relParent)
     }
 
     func listPlaylists() -> [[String: Any]] {
@@ -456,7 +537,7 @@ final class MediaLibraryManager {
             let sem = DispatchSemaphore(value: 0)
             var result: (Data, String)?
             var req = URLRequest(url: url, timeoutInterval: 10)
-            req.setValue("!Download-Cover/1.6.0", forHTTPHeaderField: "User-Agent")
+            req.setValue("!Download-Cover/1.6.1", forHTTPHeaderField: "User-Agent")
             URLSession.shared.dataTask(with: req) { data, response, _ in
                 defer { sem.signal() }
                 let http = response as? HTTPURLResponse
@@ -547,6 +628,7 @@ final class MediaLibraryManager {
         size: Int64,
         mtime: Double,
         source: String,
+        folderPath: String,
         folderGroup: String?
     ) -> [String: Any] {
         lock.lock()
@@ -557,12 +639,14 @@ final class MediaLibraryManager {
         lock.unlock()
 
         let kind = Self.audioExts.contains(ext) ? "audio" : "video"
-        var title = url.deletingPathExtension().lastPathComponent
-        var artist = ""
-        var album = ""
-        var year = ""
-        var genre = ""
-        var hasCover = false
+        let sideTags = loadSidecarTags(for: url.path)
+        var title = sideTags["title"]?.isEmpty == false ? sideTags["title"]! : url.deletingPathExtension().lastPathComponent
+        var artist = sideTags["artist"] ?? ""
+        var album = sideTags["album"] ?? ""
+        var year = sideTags["year"] ?? ""
+        var genre = sideTags["genre"] ?? ""
+        let track = sideTags["track"] ?? ""
+        var hasCover = sidecarCoverURL(for: url.path) != nil
 
         let asset = AVURLAsset(url: url)
         let durationSec = CMTimeGetSeconds(asset.duration)
@@ -571,21 +655,32 @@ final class MediaLibraryManager {
         for item in asset.commonMetadata {
             switch item.commonKey {
             case .commonKeyTitle:
-                if let v = item.stringValue?.trimmingCharacters(in: .whitespaces), !v.isEmpty { title = v }
+                if (sideTags["title"] ?? "").isEmpty,
+                   let v = item.stringValue?.trimmingCharacters(in: .whitespaces), !v.isEmpty { title = v }
             case .commonKeyArtist:
-                artist = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? artist
+                if artist.isEmpty { artist = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? artist }
             case .commonKeyAlbumName:
-                album = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? album
+                if album.isEmpty { album = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? album }
             case .commonKeyCreationDate:
-                if let v = item.stringValue, let yRange = v.range(of: #"\d{4}"#, options: .regularExpression) {
+                if year.isEmpty, let v = item.stringValue, let yRange = v.range(of: #"\d{4}"#, options: .regularExpression) {
                     year = String(v[yRange])
                 }
             case .commonKeyType:
-                genre = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? genre
+                if genre.isEmpty { genre = item.stringValue?.trimmingCharacters(in: .whitespaces) ?? genre }
             case .commonKeyArtwork:
                 if let data = item.dataValue, !data.isEmpty { hasCover = true }
             default:
                 break
+            }
+        }
+
+        if !hasCover {
+            let parent = url.deletingLastPathComponent()
+            for cname in ["cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png"] {
+                if FileManager.default.fileExists(atPath: parent.appendingPathComponent(cname).path) {
+                    hasCover = true
+                    break
+                }
             }
         }
 
@@ -597,7 +692,7 @@ final class MediaLibraryManager {
             "album": album,
             "year": year,
             "genre": genre,
-            "track": "",
+            "track": track,
             "kind": kind,
             "ext": ext.uppercased(),
             "mime": Self.mimeByExt[ext] ?? "application/octet-stream",
@@ -608,6 +703,7 @@ final class MediaLibraryManager {
             "mtime": mtime,
             "has_cover": hasCover,
             "source": source,
+            "folder_path": folderPath,
             "folder_group": folderGroup ?? NSNull(),
             "_mtime_key": Int64(mtime),
         ]

@@ -1,7 +1,6 @@
 package com.juancorporation.exclaimdownload
 
 import android.content.ContentUris
-import android.content.ContentValues
 import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
@@ -9,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Base64
+import android.util.Size
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -23,6 +23,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -54,28 +55,101 @@ class MediaLibraryManager(private val app: DownloadApp) {
             RegexOption.IGNORE_CASE,
         )
         private val INDEX_RE = Regex("""^\s*\d{1,3}\s*[-._)]\s*""")
+
+        /**
+         * Build LD_LIBRARY_PATH containing FFmpeg libs, Python libs (which provide libexpat.so.1
+         * required by libfontconfig.so), any sibling package lib dirs, and nativeLibraryDir.
+         */
+        fun buildFfmpegLdLibraryPath(
+            packagesRoot: File,
+            nativeLibDir: String?,
+            existingLdPath: String? = null,
+        ): String {
+            val ordered = LinkedHashSet<String>()
+            fun addIfDir(dir: File?) {
+                if (dir != null && dir.isDirectory) {
+                    ordered.add(dir.absolutePath)
+                }
+            }
+            addIfDir(File(packagesRoot, "ffmpeg/usr/lib"))
+            addIfDir(File(packagesRoot, "python/usr/lib"))
+            if (packagesRoot.isDirectory) {
+                packagesRoot.listFiles()?.forEach { pkg ->
+                    if (pkg.isDirectory) {
+                        addIfDir(File(pkg, "usr/lib"))
+                        addIfDir(File(pkg, "lib"))
+                    }
+                }
+            }
+            if (!nativeLibDir.isNullOrBlank()) {
+                ordered.add(nativeLibDir)
+            }
+            if (!existingLdPath.isNullOrBlank()) {
+                existingLdPath.split(':').forEach { part ->
+                    val cleaned = part.trim()
+                    if (cleaned.isNotEmpty()) ordered.add(cleaned)
+                }
+            }
+            return ordered.joinToString(":")
+        }
     }
 
     private data class ResolvedMediaSource(
         val id: String,
         val file: File?,
         val contentUri: Uri?,
+        val albumArtUri: Uri?,
         val name: String,
         val ext: String,
         val mime: String,
         val size: Long,
         val mtime: Double,
         val source: String,
+        val folderPath: String,
         val folderGroup: String?,
+        val kind: String,
+        val title: String?,
+        val artist: String?,
+        val album: String?,
+        val year: String?,
+        val durationSec: Double?,
     )
 
     private val playlistLock = Any()
-    private val probeCache = ConcurrentHashMap<String, JSONObject>()
+    private val sourcesById = ConcurrentHashMap<String, ResolvedMediaSource>()
+    private val sidecarTags = ConcurrentHashMap<String, JSONObject>()
     private val playlistsFile = File(app.filesDir, "playlists.json")
     private val importedDir = File(app.filesDir, "imported_media").apply { mkdirs() }
+    private val coversDir = File(app.filesDir, "covers").apply { mkdirs() }
 
-    fun scanLibrary(): JSONArray {
-        val sources = collectAllSources()
+    private fun sidecarKey(id: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(id.toByteArray(StandardCharsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }.take(24)
+    }
+
+    private fun sidecarCoverFile(id: String): File? {
+        val key = sidecarKey(id)
+        for (ext in arrayOf("jpg", "png")) {
+            val f = File(coversDir, "$key.$ext")
+            if (f.isFile && f.length() > 32L) return f
+        }
+        return null
+    }
+
+    private fun saveSidecarCover(id: String, bytes: ByteArray, mime: String) {
+        val key = sidecarKey(id)
+        File(coversDir, "$key.jpg").delete()
+        File(coversDir, "$key.png").delete()
+        val ext = if ("png" in mime.lowercase(Locale.ROOT)) "png" else "jpg"
+        File(coversDir, "$key.$ext").writeBytes(bytes)
+    }
+
+    fun scanLibrary(scope: String = "all"): JSONArray {
+        val sources = collectAllSources(includeDevice = scope != "app")
+        sourcesById.clear()
+        for (src in sources) {
+            sourcesById[src.id] = src
+        }
         val array = JSONArray()
         for (src in sources.sortedByDescending { it.mtime }) {
             array.put(buildItemJson(src))
@@ -126,14 +200,23 @@ class MediaLibraryManager(private val app: DownloadApp) {
             id = target.absolutePath,
             file = target,
             contentUri = null,
+            albumArtUri = null,
             name = target.name,
             ext = ext,
             mime = MIME_BY_EXT[ext] ?: "application/octet-stream",
             size = target.length(),
             mtime = target.lastModified() / 1000.0,
             source = "imported",
-            folderGroup = null,
+            folderPath = "Importados",
+            folderGroup = "Importados",
+            kind = if (ext in AUDIO_EXTS) "audio" else "video",
+            title = null,
+            artist = null,
+            album = null,
+            year = null,
+            durationSec = null,
         )
+        sourcesById[src.id] = src
         return buildItemJson(src)
     }
 
@@ -205,21 +288,57 @@ class MediaLibraryManager(private val app: DownloadApp) {
 
     fun extractCoverBytes(path: String): Pair<ByteArray, String>? {
         val src = resolveByPath(path) ?: return null
+        sidecarCoverFile(src.id)?.let { file ->
+            val mime = if (file.extension == "png") "image/png" else "image/jpeg"
+            return file.readBytes() to mime
+        }
         val mmr = MediaMetadataRetriever()
-        return try {
+        val embedded = try {
             setDataSource(mmr, src)
-            val pic = mmr.embeddedPicture ?: return null
-            val mime = if (pic.size > 4 && pic[0] == 0x89.toByte() && pic[1] == 0x50.toByte()) {
-                "image/png"
-            } else {
-                "image/jpeg"
+            mmr.embeddedPicture?.let { pic ->
+                val mime = if (pic.size > 4 && pic[0] == 0x89.toByte() && pic[1] == 0x50.toByte()) {
+                    "image/png"
+                } else {
+                    "image/jpeg"
+                }
+                pic to mime
             }
-            pic to mime
         } catch (_: Exception) {
             null
         } finally {
             runCatching { mmr.release() }
         }
+        if (embedded != null) return embedded
+
+        if (src.albumArtUri != null) {
+            runCatching {
+                app.contentResolver.openInputStream(src.albumArtUri)?.use { it.readBytes() }
+            }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { return it to "image/jpeg" }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && src.contentUri != null) {
+            val thumbBytes = runCatching {
+                val bmp = app.contentResolver.loadThumbnail(src.contentUri, Size(512, 512), null)
+                ByteArrayOutputStream().apply {
+                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, this)
+                }.toByteArray()
+            }.getOrNull()
+            if (thumbBytes != null && thumbBytes.isNotEmpty()) {
+                return thumbBytes to "image/jpeg"
+            }
+        }
+
+        // Folder artwork fallback for local files
+        src.file?.parentFile?.let { parent ->
+            for (cand in arrayOf("cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png")) {
+                val f = File(parent, cand)
+                if (f.isFile && f.length() in 65L..(5 * 1024 * 1024)) {
+                    val mime = if (cand.endsWith(".png")) "image/png" else "image/jpeg"
+                    return f.readBytes() to mime
+                }
+            }
+        }
+        return null
     }
 
     fun cleanTrackQuery(raw: String): String {
@@ -240,7 +359,7 @@ class MediaLibraryManager(private val app: DownloadApp) {
         val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 10_000
             readTimeout = 10_000
-            setRequestProperty("User-Agent", "!Download-Metadata/1.6.0")
+            setRequestProperty("User-Agent", "!Download-Metadata/1.6.1")
         }
         if (conn.responseCode !in 200..299) {
             throw IOException("iTunes API HTTP ${conn.responseCode}")
@@ -299,8 +418,11 @@ class MediaLibraryManager(private val app: DownloadApp) {
         val coverB64 = if (req.has("cover_base64") && !req.isNull("cover_base64")) req.optString("cover_base64", "") else null
 
         val coverBytes = fetchCoverBytes(coverUrl, coverB64)
-        val ffmpegCmd = findFfmpegCommand()
+        if (coverBytes != null) {
+            saveSidecarCover(src.id, coverBytes.first, coverBytes.second)
+        }
 
+        val ffmpegCmd = findFfmpegCommand()
         val tempDir = File(app.cacheDir, "tagging_${UUID.randomUUID().toString().take(8)}").apply { mkdirs() }
         val tmpInput = File(tempDir, "in.${src.ext}")
         val tmpOut = File(tempDir, "out.${src.ext}")
@@ -308,7 +430,7 @@ class MediaLibraryManager(private val app: DownloadApp) {
             openInputStream(src)?.use { inp -> tmpInput.outputStream().use { inp.copyTo(it) } }
                 ?: throw IOException("No se pudo leer el archivo original.")
 
-            var taggedFile: File? = null
+            val taggedFile: File
             if (src.ext == "mp3") {
                 writeId3v2Mp3(
                     srcFile = tmpInput,
@@ -324,11 +446,22 @@ class MediaLibraryManager(private val app: DownloadApp) {
                 taggedFile = tmpOut
             } else if (ffmpegCmd != null) {
                 val cmd = mutableListOf(ffmpegCmd.first, "-y", "-v", "error", "-i", tmpInput.absolutePath)
-                var coverTmp: File? = null
                 val supportsCover = src.ext in setOf("mp3", "m4a", "aac", "flac")
                 if (supportsCover && coverBytes != null) {
-                    coverTmp = File(tempDir, "cover.jpg").apply { writeBytes(coverBytes.first) }
-                    cmd.addAll(listOf("-i", coverTmp.absolutePath, "-map", "0:a:0", "-map", "1:v:0", "-c:a", "copy", "-c:v", "mjpeg", "-disposition:v:0", "attached_pic"))
+                    val isJpeg = "jpeg" in coverBytes.second || "jpg" in coverBytes.second
+                    val coverTmp = File(tempDir, if (isJpeg) "cover.jpg" else "cover.png").apply {
+                        writeBytes(coverBytes.first)
+                    }
+                    cmd.addAll(
+                        listOf(
+                            "-i", coverTmp.absolutePath,
+                            "-map", "0:a:0",
+                            "-map", "1:v:0",
+                            "-c:a", "copy",
+                            "-c:v", if (isJpeg) "copy" else "mjpeg",
+                            "-disposition:v:0", "attached_pic",
+                        ),
+                    )
                 } else if (supportsCover) {
                     cmd.addAll(listOf("-map", "0:a:0", "-map", "0:v?", "-c:a", "copy", "-c:v", "copy"))
                 } else {
@@ -353,19 +486,64 @@ class MediaLibraryManager(private val app: DownloadApp) {
                 }
                 taggedFile = tmpOut
             } else {
-                throw IllegalArgumentException("En Android la edición directa sin recodificar está garantizada para MP3.")
+                throw IllegalArgumentException("El motor FFmpeg aún se está inicializando; inténtalo de nuevo en un momento.")
             }
 
-            if (src.file != null) {
-                taggedFile.copyTo(src.file, overwrite = true)
+            var wroteFile = false
+            if (src.file != null && src.file.canWrite()) {
+                runCatching {
+                    taggedFile.copyTo(src.file, overwrite = true)
+                    wroteFile = true
+                }
             } else if (src.contentUri != null) {
-                app.contentResolver.openOutputStream(src.contentUri, "wt")?.use { out ->
-                    taggedFile.inputStream().use { it.copyTo(out) }
-                } ?: throw IOException("No se pudo sobrescribir el archivo en Descargas.")
+                runCatching {
+                    app.contentResolver.openOutputStream(src.contentUri, "wt")?.use { out ->
+                        taggedFile.inputStream().use { it.copyTo(out) }
+                        wroteFile = true
+                    }
+                }
             }
-            probeCache.remove(src.id)
-            val refreshed = resolveByPath(src.id) ?: src
-            return buildItemJson(refreshed)
+
+            if (!wroteFile) {
+                // Save clean tagged copy into !Download/Etiquetados if external file is read-only under Scoped Storage
+                val saved = MediaStoreSaver.saveToDownloads(app, taggedFile, subFolder = "Etiquetados")
+                val newSrc = ResolvedMediaSource(
+                    id = saved.contentUri.toString(),
+                    file = null,
+                    contentUri = saved.contentUri,
+                    albumArtUri = null,
+                    name = saved.fileName,
+                    ext = src.ext,
+                    mime = saved.mimeType,
+                    size = saved.sizeBytes,
+                    mtime = System.currentTimeMillis() / 1000.0,
+                    source = "downloaded",
+                    folderPath = "Download/!Download/Etiquetados",
+                    folderGroup = "Etiquetados",
+                    kind = "audio",
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    year = year,
+                    durationSec = src.durationSec,
+                )
+                if (coverBytes != null) saveSidecarCover(newSrc.id, coverBytes.first, coverBytes.second)
+                sourcesById[newSrc.id] = newSrc
+                return buildItemJson(newSrc, overrideTags = mapOf(
+                    "title" to title, "artist" to artist, "album" to album, "year" to year, "genre" to genre, "track" to track,
+                ), hasCoverOverride = coverBytes != null || sidecarCoverFile(newSrc.id) != null)
+            }
+
+            val overrideMap = mutableMapOf<String, String?>()
+            overrideMap["title"] = title
+            overrideMap["artist"] = artist
+            overrideMap["album"] = album
+            overrideMap["year"] = year
+            overrideMap["genre"] = genre
+            overrideMap["track"] = track
+            val built = buildItemJson(src, overrideTags = overrideMap, hasCoverOverride = coverBytes != null || sidecarCoverFile(src.id) != null)
+            sidecarTags[src.id] = built
+            return built
         } finally {
             tempDir.deleteRecursively()
         }
@@ -443,15 +621,16 @@ class MediaLibraryManager(private val app: DownloadApp) {
 
     private fun findFfmpegCommand(): Pair<String, String?>? {
         val candidates = listOf(
-            File(app.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/bin/ffmpeg"),
             File(app.applicationInfo.nativeLibraryDir, "libffmpeg.so"),
+            File(app.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/bin/ffmpeg"),
         )
         val bin = candidates.firstOrNull { it.isFile && it.canExecute() } ?: return null
-        val libDir = File(app.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib")
-        val ldPath = listOfNotNull(
-            libDir.takeIf { it.isDirectory }?.absolutePath,
-            app.applicationInfo.nativeLibraryDir,
-        ).joinToString(":")
+        val packagesRoot = File(app.noBackupFilesDir, "youtubedl-android/packages")
+        val ldPath = buildFfmpegLdLibraryPath(
+            packagesRoot = packagesRoot,
+            nativeLibDir = app.applicationInfo.nativeLibraryDir,
+            existingLdPath = System.getenv("LD_LIBRARY_PATH"),
+        )
         return bin.absolutePath to ldPath
     }
 
@@ -479,7 +658,7 @@ class MediaLibraryManager(private val app: DownloadApp) {
                 instanceFollowRedirects = true
                 connectTimeout = 10_000
                 readTimeout = 10_000
-                setRequestProperty("User-Agent", "!Download-Cover/1.6.0")
+                setRequestProperty("User-Agent", "!Download-Cover/1.6.1")
             }
             if (conn.responseCode !in 200..299) {
                 throw IOException("No se pudo descargar la imagen de carátula.")
@@ -525,7 +704,7 @@ class MediaLibraryManager(private val app: DownloadApp) {
             if (cleaned.isEmpty()) return
             val textBytes = cleaned.toByteArray(StandardCharsets.UTF_16)
             val payload = ByteArray(1 + textBytes.size)
-            payload[0] = 0x01 // UTF-16 with BOM
+            payload[0] = 0x01
             System.arraycopy(textBytes, 0, payload, 1, textBytes.size)
             frames.write(frameId.toByteArray(StandardCharsets.US_ASCII))
             frames.write(ByteBuffer.allocate(4).putInt(payload.size).array())
@@ -544,11 +723,11 @@ class MediaLibraryManager(private val app: DownloadApp) {
             val (img, mime) = coverBytes
             val mimeAscii = mime.toByteArray(StandardCharsets.US_ASCII)
             val apicPayload = ByteArrayOutputStream().apply {
-                write(0x00) // ISO-8859-1
+                write(0x00)
                 write(mimeAscii)
                 write(0x00)
-                write(0x03) // Cover (front)
-                write(0x00) // empty description
+                write(0x03)
+                write(0x00)
                 write(img)
             }.toByteArray()
             frames.write("APIC".toByteArray(StandardCharsets.US_ASCII))
@@ -567,72 +746,91 @@ class MediaLibraryManager(private val app: DownloadApp) {
         )
         dstFile.outputStream().use { out ->
             out.write("ID3".toByteArray(StandardCharsets.US_ASCII))
-            out.write(byteArrayOf(3, 0, 0)) // ID3v2.3.0
+            out.write(byteArrayOf(3, 0, 0))
             out.write(syncSafe)
             out.write(frameData)
             out.write(raw, audioOffset, raw.size - audioOffset)
         }
     }
 
-    private fun collectAllSources(): List<ResolvedMediaSource> {
-        val result = mutableListOf<ResolvedMediaSource>()
-        val seen = mutableSetOf<String>()
+    private fun normalizeFolderPath(rawRel: String?, fallback: String): Pair<String, String> {
+        val cleaned = (rawRel ?: "")
+            .replace('\\', '/')
+            .trim('/')
+        if (cleaned.isBlank()) return fallback to fallback
+        val leaf = cleaned.substringAfterLast('/')
+        return cleaned to leaf
+    }
 
-        fun addFile(file: File, source: String, group: String?) {
+    private fun collectAllSources(includeDevice: Boolean): List<ResolvedMediaSource> {
+        val result = mutableListOf<ResolvedMediaSource>()
+        val seenIds = mutableSetOf<String>()
+        val seenNamesSizes = mutableSetOf<String>()
+
+        fun addFile(file: File, source: String, folderPath: String, group: String?) {
             if (!file.isFile || file.name.startsWith(".")) return
             val ext = file.extension.lowercase(Locale.ROOT)
             if (ext !in MEDIA_EXTS) return
-            if (!seen.add(file.absolutePath)) return
+            if (!seenIds.add(file.absolutePath)) return
+            seenNamesSizes.add("${file.name.lowercase(Locale.ROOT)}:${file.length()}")
             result.add(
                 ResolvedMediaSource(
                     id = file.absolutePath,
                     file = file,
                     contentUri = null,
+                    albumArtUri = null,
                     name = file.name,
                     ext = ext,
                     mime = MIME_BY_EXT[ext] ?: "application/octet-stream",
                     size = file.length(),
                     mtime = file.lastModified() / 1000.0,
                     source = source,
+                    folderPath = folderPath,
                     folderGroup = group,
-                )
+                    kind = if (ext in AUDIO_EXTS) "audio" else "video",
+                    title = null,
+                    artist = null,
+                    album = null,
+                    year = null,
+                    durationSec = null,
+                ),
             )
         }
 
-        fun walkDir(root: File, source: String, maxDepth: Int = 2) {
+        fun walkDir(root: File, source: String, baseLabel: String, maxDepth: Int = 3) {
             if (!root.isDirectory) return
             fun walk(dir: File, depth: Int) {
                 dir.listFiles()?.forEach { entry ->
                     if (entry.isDirectory && depth < maxDepth && !entry.name.startsWith(".")) {
                         walk(entry, depth + 1)
                     } else if (entry.isFile) {
-                        val group = if (dir != root) dir.name else null
-                        addFile(entry, source, group)
+                        val relDir = if (dir == root) baseLabel else "$baseLabel/${dir.relativeTo(root).path.replace('\\', '/')}"
+                        val group = if (dir == root) baseLabel else dir.name
+                        addFile(entry, source, relDir, group)
                     }
                 }
             }
             walk(root, 0)
         }
 
-        walkDir(importedDir, "imported", maxDepth = 1)
+        walkDir(importedDir, "imported", "Importados", maxDepth = 1)
+
+        val resolver = app.contentResolver
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val resolver = app.contentResolver
-            val projection = arrayOf(
+            val dlProjection = arrayOf(
                 MediaStore.Downloads._ID,
                 MediaStore.Downloads.DISPLAY_NAME,
                 MediaStore.Downloads.RELATIVE_PATH,
                 MediaStore.Downloads.SIZE,
                 MediaStore.Downloads.DATE_MODIFIED,
             )
-            val selection = "${MediaStore.Downloads.RELATIVE_PATH} LIKE ?"
-            val args = arrayOf("%!Download%")
             runCatching {
                 resolver.query(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI,
-                    projection,
-                    selection,
-                    args,
+                    dlProjection,
+                    "${MediaStore.Downloads.RELATIVE_PATH} LIKE ?",
+                    arrayOf("%!Download%"),
                     "${MediaStore.Downloads.DATE_MODIFIED} DESC",
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
@@ -641,28 +839,36 @@ class MediaLibraryManager(private val app: DownloadApp) {
                     val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
                     val modCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_MODIFIED)
                     while (cursor.moveToNext()) {
-                        val rowId = cursor.getLong(idCol)
                         val name = cursor.getString(nameCol) ?: continue
                         val ext = File(name).extension.lowercase(Locale.ROOT)
                         if (ext !in MEDIA_EXTS) continue
-                        val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, rowId)
+                        val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(idCol))
                         val idStr = uri.toString()
-                        if (!seen.add(idStr)) continue
-                        val rel = cursor.getString(relCol).orEmpty()
-                        val subMatch = Regex("""!Download/([^/]+)/""").find(rel)
+                        if (!seenIds.add(idStr)) continue
+                        val sizeVal = cursor.getLong(sizeCol)
+                        seenNamesSizes.add("${name.lowercase(Locale.ROOT)}:$sizeVal")
+                        val (folderPath, group) = normalizeFolderPath(cursor.getString(relCol), "Download/!Download")
                         result.add(
                             ResolvedMediaSource(
                                 id = idStr,
                                 file = null,
                                 contentUri = uri,
+                                albumArtUri = null,
                                 name = name,
                                 ext = ext,
                                 mime = MIME_BY_EXT[ext] ?: "application/octet-stream",
-                                size = cursor.getLong(sizeCol),
+                                size = sizeVal,
                                 mtime = cursor.getLong(modCol).toDouble(),
                                 source = "downloaded",
-                                folderGroup = subMatch?.groupValues?.getOrNull(1),
-                            )
+                                folderPath = folderPath,
+                                folderGroup = group,
+                                kind = if (ext in AUDIO_EXTS) "audio" else "video",
+                                title = null,
+                                artist = null,
+                                album = null,
+                                year = null,
+                                durationSec = null,
+                            ),
                         )
                     }
                 }
@@ -670,15 +876,193 @@ class MediaLibraryManager(private val app: DownloadApp) {
         } else {
             @Suppress("DEPRECATION")
             val dlDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "!Download")
-            walkDir(dlDir, "downloaded", maxDepth = 2)
+            walkDir(dlDir, "downloaded", "Download/!Download", maxDepth = 3)
+        }
+
+        if (includeDevice) {
+            queryDeviceAudio(resolver, seenIds, seenNamesSizes, result)
+            queryDeviceVideo(resolver, seenIds, seenNamesSizes, result)
         }
 
         return result
     }
 
+    private fun queryDeviceAudio(
+        resolver: android.content.ContentResolver,
+        seenIds: MutableSet<String>,
+        seenNamesSizes: MutableSet<String>,
+        out: MutableList<ResolvedMediaSource>,
+    ) {
+        val relColName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Audio.Media.BUCKET_DISPLAY_NAME
+        }
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.DISPLAY_NAME,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            relColName,
+        )
+        runCatching {
+            resolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Audio.Media.SIZE} > 8192",
+                null,
+                "${MediaStore.Audio.Media.DATE_MODIFIED} DESC",
+            )?.use { c ->
+                val idCol = c.getColumnIndex(MediaStore.Audio.Media._ID)
+                val nameCol = c.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
+                val titleCol = c.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                val artistCol = c.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                val albumCol = c.getColumnIndex(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = c.getColumnIndex(MediaStore.Audio.Media.ALBUM_ID)
+                val yearCol = c.getColumnIndex(MediaStore.Audio.Media.YEAR)
+                val durCol = c.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                val sizeCol = c.getColumnIndex(MediaStore.Audio.Media.SIZE)
+                val modCol = c.getColumnIndex(MediaStore.Audio.Media.DATE_MODIFIED)
+                val relCol = c.getColumnIndex(relColName)
+                var count = 0
+                while (c.moveToNext() && count < 800) {
+                    val name = if (nameCol >= 0) c.getString(nameCol) else null
+                    if (name.isNullOrBlank()) continue
+                    val ext = File(name).extension.lowercase(Locale.ROOT)
+                    if (ext !in AUDIO_EXTS) continue
+                    val sizeVal = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
+                    val dedupKey = "${name.lowercase(Locale.ROOT)}:$sizeVal"
+                    if (!seenNamesSizes.add(dedupKey)) continue
+                    val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, c.getLong(idCol))
+                    if (!seenIds.add(uri.toString())) continue
+                    val relRaw = if (relCol >= 0) c.getString(relCol) else null
+                    val isAppDl = relRaw?.contains("!Download", ignoreCase = true) == true
+                    val (folderPath, group) = normalizeFolderPath(relRaw, "Música")
+                    val albumId = if (albumIdCol >= 0) c.getLong(albumIdCol) else -1L
+                    @Suppress("DEPRECATION")
+                    val artUri = if (albumId > 0L) ContentUris.withAppendedId(Uri.parse("content://media/external/audio/albumart"), albumId) else null
+                    val rawArtist = if (artistCol >= 0) c.getString(artistCol)?.trim() else null
+                    val cleanArtist = if (rawArtist == "<unknown>") "" else rawArtist.orEmpty()
+                    val yr = if (yearCol >= 0) c.getInt(yearCol).let { if (it > 0) it.toString() else "" } else ""
+                    val durMs = if (durCol >= 0) c.getLong(durCol) else 0L
+
+                    out.add(
+                        ResolvedMediaSource(
+                            id = uri.toString(),
+                            file = null,
+                            contentUri = uri,
+                            albumArtUri = artUri,
+                            name = name,
+                            ext = ext,
+                            mime = MIME_BY_EXT[ext] ?: "audio/mpeg",
+                            size = sizeVal,
+                            mtime = if (modCol >= 0) c.getLong(modCol).toDouble() else 0.0,
+                            source = if (isAppDl) "downloaded" else "device",
+                            folderPath = folderPath,
+                            folderGroup = group,
+                            kind = "audio",
+                            title = if (titleCol >= 0) c.getString(titleCol)?.trim() else null,
+                            artist = cleanArtist,
+                            album = if (albumCol >= 0) c.getString(albumCol)?.trim() else null,
+                            year = yr,
+                            durationSec = if (durMs > 0) durMs / 1000.0 else null,
+                        ),
+                    )
+                    count++
+                }
+            }
+        }
+    }
+
+    private fun queryDeviceVideo(
+        resolver: android.content.ContentResolver,
+        seenIds: MutableSet<String>,
+        seenNamesSizes: MutableSet<String>,
+        out: MutableList<ResolvedMediaSource>,
+    ) {
+        val relColName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Video.Media.RELATIVE_PATH
+        } else {
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME
+        }
+        val projection = arrayOf(
+            MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME,
+            MediaStore.Video.Media.TITLE,
+            MediaStore.Video.Media.DURATION,
+            MediaStore.Video.Media.SIZE,
+            MediaStore.Video.Media.DATE_MODIFIED,
+            relColName,
+        )
+        runCatching {
+            resolver.query(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                "${MediaStore.Video.Media.SIZE} > 8192",
+                null,
+                "${MediaStore.Video.Media.DATE_MODIFIED} DESC",
+            )?.use { c ->
+                val idCol = c.getColumnIndex(MediaStore.Video.Media._ID)
+                val nameCol = c.getColumnIndex(MediaStore.Video.Media.DISPLAY_NAME)
+                val titleCol = c.getColumnIndex(MediaStore.Video.Media.TITLE)
+                val durCol = c.getColumnIndex(MediaStore.Video.Media.DURATION)
+                val sizeCol = c.getColumnIndex(MediaStore.Video.Media.SIZE)
+                val modCol = c.getColumnIndex(MediaStore.Video.Media.DATE_MODIFIED)
+                val relCol = c.getColumnIndex(relColName)
+                var count = 0
+                while (c.moveToNext() && count < 400) {
+                    val name = if (nameCol >= 0) c.getString(nameCol) else null
+                    if (name.isNullOrBlank()) continue
+                    val ext = File(name).extension.lowercase(Locale.ROOT)
+                    if (ext !in VIDEO_EXTS) continue
+                    val sizeVal = if (sizeCol >= 0) c.getLong(sizeCol) else 0L
+                    val dedupKey = "${name.lowercase(Locale.ROOT)}:$sizeVal"
+                    if (!seenNamesSizes.add(dedupKey)) continue
+                    val uri = ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, c.getLong(idCol))
+                    if (!seenIds.add(uri.toString())) continue
+                    val relRaw = if (relCol >= 0) c.getString(relCol) else null
+                    val isAppDl = relRaw?.contains("!Download", ignoreCase = true) == true
+                    val (folderPath, group) = normalizeFolderPath(relRaw, "Videos")
+                    val durMs = if (durCol >= 0) c.getLong(durCol) else 0L
+
+                    out.add(
+                        ResolvedMediaSource(
+                            id = uri.toString(),
+                            file = null,
+                            contentUri = uri,
+                            albumArtUri = null,
+                            name = name,
+                            ext = ext,
+                            mime = MIME_BY_EXT[ext] ?: "video/mp4",
+                            size = sizeVal,
+                            mtime = if (modCol >= 0) c.getLong(modCol).toDouble() else 0.0,
+                            source = if (isAppDl) "downloaded" else "device",
+                            folderPath = folderPath,
+                            folderGroup = group,
+                            kind = "video",
+                            title = if (titleCol >= 0) c.getString(titleCol)?.trim() else null,
+                            artist = "",
+                            album = "",
+                            year = "",
+                            durationSec = if (durMs > 0) durMs / 1000.0 else null,
+                        ),
+                    )
+                    count++
+                }
+            }
+        }
+    }
+
     private fun resolveByPath(path: String): ResolvedMediaSource? {
         if (path.isBlank()) return null
-        return collectAllSources().firstOrNull { it.id == path }
+        sourcesById[path]?.let { return it }
+        return collectAllSources(includeDevice = true).firstOrNull { it.id == path }
     }
 
     private fun resolveTotalSize(src: ResolvedMediaSource): Long {
@@ -709,44 +1093,59 @@ class MediaLibraryManager(private val app: DownloadApp) {
         }
     }
 
-    private fun buildItemJson(src: ResolvedMediaSource): JSONObject {
-        val cacheKey = src.id
-        val cached = probeCache[cacheKey]
-        if (cached != null && cached.optLong("_mtime_key", -1L) == src.mtime.toLong()) {
-            return JSONObject(cached.toString())
-        }
-
-        val kind = if (src.ext in AUDIO_EXTS) "audio" else "video"
-        var title = File(src.name).nameWithoutExtension
-        var artist = ""
-        var album = ""
-        var year = ""
-        var genre = ""
-        var track = ""
-        var duration: Double? = null
+    private fun buildItemJson(
+        src: ResolvedMediaSource,
+        overrideTags: Map<String, String?>? = null,
+        hasCoverOverride: Boolean? = null,
+    ): JSONObject {
+        val patched = sidecarTags[src.id]
+        val hasSidecarCover = sidecarCoverFile(src.id) != null
+        val defaultTitle = File(src.name).nameWithoutExtension
+        var title = overrideTags?.get("title")?.takeIf { !it.isNullOrBlank() }
+            ?: patched?.optString("title")?.takeIf { !it.isNullOrBlank() }
+            ?: src.title?.takeIf { it.isNotBlank() }
+            ?: defaultTitle
+        var artist = overrideTags?.get("artist")
+            ?: patched?.optString("artist")
+            ?: src.artist.orEmpty()
+        var album = overrideTags?.get("album")
+            ?: patched?.optString("album")
+            ?: src.album.orEmpty()
+        var year = overrideTags?.get("year")
+            ?: patched?.optString("year")
+            ?: src.year.orEmpty()
+        var genre = overrideTags?.get("genre")
+            ?: patched?.optString("genre")
+            ?: ""
+        var track = overrideTags?.get("track")
+            ?: patched?.optString("track")
+            ?: ""
+        var duration = src.durationSec
         var bitrate: Int? = null
-        var hasCover = false
+        var hasCover = hasCoverOverride
+            ?: (hasSidecarCover || src.albumArtUri != null || src.kind == "video")
 
-        val mmr = MediaMetadataRetriever()
-        runCatching {
-            setDataSource(mmr, src)
-            mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.trim()?.takeIf { it.isNotEmpty() }?.let { title = it }
-            artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.trim().orEmpty()
-            album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.trim().orEmpty()
-            year = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)?.trim().orEmpty()
-            genre = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)?.trim().orEmpty()
-            track = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.trim().orEmpty()
-            mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let {
-                duration = it / 1000.0
+        // Only open MediaMetadataRetriever for app/imported files without pre-queried MediaStore tags
+        if (src.source != "device" && overrideTags == null && patched == null) {
+            val mmr = MediaMetadataRetriever()
+            runCatching {
+                setDataSource(mmr, src)
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.trim()?.takeIf { it.isNotEmpty() }?.let { title = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)?.trim()?.takeIf { it.isNotEmpty() }?.let { artist = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)?.trim()?.takeIf { it.isNotEmpty() }?.let { album = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR)?.trim()?.takeIf { it.isNotEmpty() }?.let { year = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_GENRE)?.trim()?.takeIf { it.isNotEmpty() }?.let { genre = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER)?.trim()?.takeIf { it.isNotEmpty() }?.let { track = it }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?.let { duration = it / 1000.0 }
+                mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()?.let { bitrate = (it / 1000L).toInt().coerceAtLeast(1) }
+                if (!hasCover && mmr.embeddedPicture != null) hasCover = true
             }
-            mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()?.let {
-                bitrate = (it / 1000L).toInt().coerceAtLeast(1)
-            }
-            hasCover = mmr.embeddedPicture != null
+            runCatching { mmr.release() }
+        } else if (src.source == "device" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            hasCover = hasCover || hasSidecarCover || src.albumArtUri != null || src.kind == "video"
         }
-        runCatching { mmr.release() }
 
-        val json = JSONObject().apply {
+        return JSONObject().apply {
             put("path", src.id)
             put("filename", src.name)
             put("title", title)
@@ -755,7 +1154,7 @@ class MediaLibraryManager(private val app: DownloadApp) {
             put("year", year)
             put("genre", genre)
             put("track", track)
-            put("kind", kind)
+            put("kind", src.kind)
             put("ext", src.ext.uppercase(Locale.ROOT))
             put("mime", src.mime)
             put("duration", duration ?: JSONObject.NULL)
@@ -765,11 +1164,8 @@ class MediaLibraryManager(private val app: DownloadApp) {
             put("mtime", src.mtime)
             put("has_cover", hasCover)
             put("source", src.source)
+            put("folder_path", src.folderPath)
             put("folder_group", src.folderGroup ?: JSONObject.NULL)
-            put("_mtime_key", src.mtime.toLong())
         }
-        if (probeCache.size > 256) probeCache.clear()
-        probeCache[cacheKey] = json
-        return json
     }
 }

@@ -1,5 +1,5 @@
 #define MyAppName "!Download"
-#define MyAppVersion "1.6.0"
+#define MyAppVersion "1.6.1"
 #define MyAppPublisher "Juan Corporation"
 #define MyAppURL "https://github.com/juanpqsi279-lgtm/Download"
 #define MyAppExeName "!Download.exe"

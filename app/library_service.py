@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -13,6 +14,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +34,22 @@ PLAYLISTS_FILE = USER_DATA_DIR / "playlists.json"
 
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 MAX_COVER_BYTES = 5 * 1024 * 1024
+MAX_DEVICE_MEDIA_FILES = 1500
+
+SKIP_DIR_NAMES = {
+    ".git",
+    ".svn",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "$recycle.bin",
+    "system volume information",
+    "appdata",
+    "library",
+}
+
+COVER_FILENAMES = ("cover.jpg", "folder.jpg", "front.jpg", "album.jpg", "cover.png", "folder.png")
 
 MIME_BY_EXT = {
     ".mp3": "audio/mpeg",
@@ -58,7 +76,16 @@ _INDEX_PREFIX_RE = re.compile(r"^\s*\d{1,3}\s*[-._)]\s*")
 
 _state_lock = threading.Lock()
 _probe_cache: dict[tuple[str, int, int], dict[str, Any]] = {}
+_probe_cache_loaded = False
 _cover_cache: dict[tuple[str, int], tuple[bytes, str] | None] = {}
+
+
+def _covers_dir() -> Path:
+    return USER_DATA_DIR / "covers"
+
+
+def _probe_cache_file() -> Path:
+    return USER_DATA_DIR / "probe_cache.json"
 
 
 def _subprocess_kwargs() -> dict[str, Any]:
@@ -80,39 +107,185 @@ def guess_media_mime(path: Path) -> str:
     return guessed or "application/octet-stream"
 
 
-def _load_registry() -> list[str]:
+def _path_key(path: Path | str) -> str:
+    s = str(path)
+    return s.lower() if sys.platform == "win32" else s
+
+
+def _sidecar_cover_key(resolved: Path) -> str:
+    return hashlib.sha256(_path_key(resolved).encode("utf-8")).hexdigest()[:24]
+
+
+def _find_sidecar_cover(resolved: Path) -> Path | None:
+    cdir = _covers_dir()
+    key = _sidecar_cover_key(resolved)
+    for ext in (".jpg", ".png"):
+        cand = cdir / f"{key}{ext}"
+        if cand.is_file() and cand.stat().st_size > 32:
+            return cand
+    return None
+
+
+def _save_sidecar_cover(resolved: Path, image_bytes: bytes, ext_hint: str = ".jpg") -> Path:
+    cdir = _covers_dir()
+    cdir.mkdir(parents=True, exist_ok=True)
+    key = _sidecar_cover_key(resolved)
+    for old_ext in (".jpg", ".png"):
+        old = cdir / f"{key}{old_ext}"
+        if old.is_file():
+            try:
+                old.unlink()
+            except OSError:
+                pass
+    ext = ".png" if "png" in ext_hint.lower() else ".jpg"
+    target = cdir / f"{key}{ext}"
+    target.write_bytes(image_bytes)
+    return target
+
+
+def _find_folder_cover(dir_path: Path) -> Path | None:
+    for fname in COVER_FILENAMES:
+        cand = dir_path / fname
+        if cand.is_file() and 64 < cand.stat().st_size <= MAX_COVER_BYTES:
+            return cand
+    return None
+
+
+def _load_registry_data() -> dict[str, list[str]]:
+    data: dict[str, list[str]] = {"imported_files": [], "extra_folders": []}
     if not LIBRARY_REGISTRY_FILE.is_file():
-        return []
+        return data
     try:
         raw = json.loads(LIBRARY_REGISTRY_FILE.read_text(encoding="utf-8"))
-        items = raw.get("imported_files") if isinstance(raw, dict) else []
-        if not isinstance(items, list):
-            return []
-        return [str(p) for p in items if isinstance(p, str) and p.strip()]
+        if isinstance(raw, dict):
+            for key in ("imported_files", "extra_folders"):
+                vals = raw.get(key)
+                if isinstance(vals, list):
+                    data[key] = [str(p) for p in vals if isinstance(p, str) and p.strip()]
     except Exception:
-        return []
+        pass
+    return data
+
+
+def _save_registry_data(data: dict[str, list[str]]) -> None:
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    cleaned: dict[str, list[str]] = {}
+    for key in ("imported_files", "extra_folders"):
+        unique: list[str] = []
+        seen: set[str] = set()
+        for p in data.get(key, []):
+            k = _path_key(p)
+            if k not in seen:
+                seen.add(k)
+                unique.append(p)
+        cleaned[key] = unique
+    LIBRARY_REGISTRY_FILE.write_text(json.dumps(cleaned, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _load_registry() -> list[str]:
+    return _load_registry_data()["imported_files"]
 
 
 def _save_registry(paths: list[str]) -> None:
-    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    unique: list[str] = []
-    seen: set[str] = set()
-    for p in paths:
-        key = str(p).lower() if sys.platform == "win32" else str(p)
-        if key not in seen:
-            seen.add(key)
-            unique.append(p)
-    LIBRARY_REGISTRY_FILE.write_text(
-        json.dumps({"imported_files": unique}, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    reg = _load_registry_data()
+    reg["imported_files"] = paths
+    _save_registry_data(reg)
+
+
+def list_extra_folders() -> list[str]:
+    with _state_lock:
+        return [str(p) for p in _load_registry_data()["extra_folders"] if Path(p).is_dir()]
+
+
+def add_scan_folder(raw_path: str) -> list[str]:
+    candidate = Path((raw_path or "").strip()).resolve()
+    if not candidate.is_dir():
+        raise ValueError("La carpeta seleccionada no existe.")
+    with _state_lock:
+        reg = _load_registry_data()
+        reg["extra_folders"].append(str(candidate))
+        _save_registry_data(reg)
+        return [str(p) for p in reg["extra_folders"] if Path(p).is_dir()]
+
+
+def remove_scan_folder(raw_path: str) -> list[str]:
+    target_key = _path_key(Path((raw_path or "").strip()).resolve()) if raw_path.strip() else ""
+    with _state_lock:
+        reg = _load_registry_data()
+        reg["extra_folders"] = [
+            p for p in reg["extra_folders"] if _path_key(Path(p).resolve()) != target_key
+        ]
+        _save_registry_data(reg)
+        return [str(p) for p in reg["extra_folders"] if Path(p).is_dir()]
+
+
+def _parse_xdg_dir(var_name: str) -> Path | None:
+    if sys.platform == "win32":
+        return None
+    home = Path.home()
+    xdg_config = os.getenv("XDG_CONFIG_HOME")
+    user_dirs = (Path(xdg_config) if xdg_config else (home / ".config")) / "user-dirs.dirs"
+    if not user_dirs.is_file():
+        return None
+    try:
+        for line in user_dirs.read_text(encoding="utf-8", errors="ignore").splitlines():
+            m = re.match(rf"^{re.escape(var_name)}\s*=\s*(.+)$", line.strip())
+            if m:
+                val = m.group(1).strip().strip('"').strip("'")
+                val = val.replace("${HOME}", str(home)).replace("$HOME", str(home))
+                p = Path(val).expanduser()
+                if p.is_dir():
+                    return p
+    except Exception:
+        pass
+    return None
+
+
+def get_device_media_dirs() -> list[tuple[Path, str]]:
+    """Discover standard Music / Videos / Movies / Downloads folders for automatic library scan."""
+    home = Path.home()
+    dl_resolved = get_download_dir().resolve()
+    candidates: list[tuple[Path | None, str]] = [
+        (_parse_xdg_dir("XDG_MUSIC_DIR"), "Música"),
+        (_parse_xdg_dir("XDG_VIDEOS_DIR"), "Videos"),
+        (_parse_xdg_dir("XDG_DOWNLOAD_DIR"), "Descargas"),
+        (home / "Music", "Música"),
+        (home / "Música", "Música"),
+        (home / "Videos", "Videos"),
+        (home / "Vídeos", "Videos"),
+        (home / "Movies", "Películas"),
+        (home / "Downloads", "Descargas"),
+        (home / "Descargas", "Descargas"),
+    ]
+    out: list[tuple[Path, str]] = []
+    seen: set[str] = {_path_key(dl_resolved)}
+    try:
+        seen.add(_path_key(IMPORTED_MEDIA_DIR.resolve()))
+    except Exception:
+        pass
+
+    for path_opt, label in candidates:
+        if path_opt is None:
+            continue
+        try:
+            res = path_opt.resolve()
+        except Exception:
+            continue
+        if not res.is_dir():
+            continue
+        k = _path_key(res)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append((res, label))
+    return out
 
 
 def register_external_paths(raw_paths: list[str]) -> list[dict[str, Any]]:
     """Validate and register user-selected local audio/video paths into the library."""
     with _state_lock:
         current = _load_registry()
-        existing_keys = {p.lower() if sys.platform == "win32" else p for p in current}
+        existing_keys = {_path_key(p) for p in current}
         added: list[Path] = []
         for raw in raw_paths:
             candidate = Path(str(raw).strip())
@@ -123,13 +296,13 @@ def register_external_paths(raw_paths: list[str]) -> list[dict[str, Any]]:
             if not resolved.is_file() or resolved.suffix.lower() not in MEDIA_EXTS:
                 continue
             resolved_str = str(resolved)
-            key = resolved_str.lower() if sys.platform == "win32" else resolved_str
+            key = _path_key(resolved_str)
             if key not in existing_keys:
                 existing_keys.add(key)
                 current.append(resolved_str)
             added.append(resolved)
         _save_registry(current)
-    return [_build_media_item(path, source="imported") for path in added]
+    return [_build_media_item(path, source="imported", folder_path="Importados", folder_group="Importados") for path in added]
 
 
 def save_uploaded_media(filename: str, content: bytes) -> dict[str, Any]:
@@ -155,11 +328,11 @@ def save_uploaded_media(filename: str, content: bytes) -> dict[str, Any]:
             counter += 1
 
     target.write_bytes(content)
-    return _build_media_item(target.resolve(), source="imported")
+    return _build_media_item(target.resolve(), source="imported", folder_path="Importados", folder_group="Importados")
 
 
 def is_allowed_media_path(target: Path) -> bool:
-    """Allow local streaming/tagging only for download dir, imported dir, or registered tracks."""
+    """Allow local streaming/tagging for download dir, device media dirs, extra folders, or registered tracks."""
     try:
         resolved = target.resolve()
     except Exception:
@@ -170,30 +343,64 @@ def is_allowed_media_path(target: Path) -> bool:
     if job_manager.is_known_saved_file(resolved):
         return True
 
-    for allowed_root in (get_download_dir(), IMPORTED_MEDIA_DIR):
+    allowed_roots: list[Path] = [get_download_dir(), IMPORTED_MEDIA_DIR]
+    allowed_roots.extend(p for p, _ in get_device_media_dirs())
+    allowed_roots.extend(Path(p) for p in list_extra_folders())
+
+    for root in allowed_roots:
         try:
-            root_resolved = allowed_root.resolve()
-            if resolved == root_resolved or root_resolved in resolved.parents:
+            root_res = root.resolve()
+            if resolved == root_res or root_res in resolved.parents:
                 return True
         except Exception:
             continue
 
-    target_key = str(resolved).lower() if sys.platform == "win32" else str(resolved)
+    target_key = _path_key(resolved)
     with _state_lock:
         for reg in _load_registry():
             try:
-                reg_resolved = str(Path(reg).resolve())
-                reg_key = reg_resolved.lower() if sys.platform == "win32" else reg_resolved
-                if reg_key == target_key:
+                if _path_key(Path(reg).resolve()) == target_key:
                     return True
             except Exception:
                 continue
     return False
 
 
+def _ensure_disk_cache_loaded() -> None:
+    global _probe_cache_loaded
+    if _probe_cache_loaded:
+        return
+    _probe_cache_loaded = True
+    cache_file = _probe_cache_file()
+    if not cache_file.is_file():
+        return
+    try:
+        raw = json.loads(cache_file.read_text(encoding="utf-8"))
+        if isinstance(raw, list):
+            for entry in raw[-1500:]:
+                if isinstance(entry, dict) and isinstance(entry.get("k"), list) and len(entry["k"]) == 3:
+                    key = (str(entry["k"][0]), int(entry["k"][1]), int(entry["k"][2]))
+                    if isinstance(entry.get("v"), dict):
+                        _probe_cache[key] = entry["v"]
+    except Exception:
+        pass
+
+
+def _flush_disk_cache() -> None:
+    try:
+        cache_file = _probe_cache_file()
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with _state_lock:
+            items = [{"k": [k[0], k[1], k[2]], "v": v} for k, v in list(_probe_cache.items())[-1500:]]
+        cache_file.write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+
 def _probe_media_tags(path: Path, st_mtime_ns: int, st_size: int) -> dict[str, Any]:
     cache_key = (str(path), st_mtime_ns, st_size)
     with _state_lock:
+        _ensure_disk_cache_loaded()
         cached = _probe_cache.get(cache_key)
     if cached is not None:
         return dict(cached)
@@ -272,7 +479,7 @@ def _probe_media_tags(path: Path, st_mtime_ns: int, st_size: int) -> dict[str, A
             pass
 
     with _state_lock:
-        if len(_probe_cache) > 512:
+        if len(_probe_cache) > 1500:
             _probe_cache.clear()
         _probe_cache[cache_key] = dict(result)
     return result
@@ -281,12 +488,15 @@ def _probe_media_tags(path: Path, st_mtime_ns: int, st_size: int) -> dict[str, A
 def _build_media_item(
     path: Path,
     source: str,
+    folder_path: str = "",
     folder_group: str | None = None,
 ) -> dict[str, Any]:
     stat = path.stat()
     ext = path.suffix.lower()
     kind = "audio" if ext in AUDIO_EXTS else "video"
     meta = _probe_media_tags(path, stat.st_mtime_ns, stat.st_size)
+
+    has_cover = bool(meta["has_cover"]) or (_find_sidecar_cover(path) is not None) or (_find_folder_cover(path.parent) is not None)
 
     return {
         "path": str(path),
@@ -305,19 +515,21 @@ def _build_media_item(
         "codec": meta["codec"],
         "size": stat.st_size,
         "mtime": stat.st_mtime,
-        "has_cover": bool(meta["has_cover"]),
+        "has_cover": has_cover,
         "source": source,
+        "folder_path": folder_path or (folder_group or "!Download"),
         "folder_group": folder_group,
     }
 
 
-def scan_library() -> list[dict[str, Any]]:
-    """Scan download_dir, imported_media, and registered external files."""
+def scan_library(scope: str = "all") -> list[dict[str, Any]]:
+    """Scan download_dir, imported_media, registered tracks, and (when scope='all') OS media dirs."""
+    include_device = (scope or "all").lower() != "app"
     dl_dir = get_download_dir()
-    items: list[dict[str, Any]] = []
+    candidates: list[tuple[Path, str, str, str | None]] = []
     seen_keys: set[str] = set()
 
-    def _add_candidate(file_path: Path, source: str, root_dir: Path | None) -> None:
+    def _collect(file_path: Path, source: str, root_dir: Path | None, root_label: str) -> None:
         try:
             resolved = file_path.resolve()
         except Exception:
@@ -326,39 +538,51 @@ def scan_library() -> list[dict[str, Any]]:
             return
         if resolved.name.startswith(".") or ".tagging_tmp" in resolved.name:
             return
-        key = str(resolved).lower() if sys.platform == "win32" else str(resolved)
+        key = _path_key(resolved)
         if key in seen_keys:
             return
         seen_keys.add(key)
-        group = None
+
+        folder_path = root_label
+        group: str | None = root_label
         if root_dir is not None:
             try:
-                rel = resolved.relative_to(root_dir.resolve())
-                if len(rel.parts) > 1:
-                    group = rel.parts[0]
+                rel_dir = resolved.parent.relative_to(root_dir.resolve())
+                rel_parts = [p for p in rel_dir.parts if p != "."]
+                if rel_parts:
+                    folder_path = f"{root_label}/" + "/".join(rel_parts)
+                    group = rel_parts[-1]
+                elif source == "downloaded":
+                    folder_path = root_label
+                    group = None
             except Exception:
-                group = None
-        try:
-            items.append(_build_media_item(resolved, source=source, folder_group=group))
-        except OSError:
-            return
+                pass
+        candidates.append((resolved, source, folder_path, group))
 
-    def _walk_limited(root: Path, source: str, max_depth: int = 3) -> None:
+    def _walk_limited(root: Path, source: str, root_label: str, max_depth: int = 3, max_total: int = 2500) -> None:
         if not root.is_dir():
             return
         root_res = root.resolve()
         for current_root, dirs, files in os.walk(root_res):
+            if len(candidates) >= max_total:
+                break
             curr_path = Path(current_root)
             try:
                 depth = len(curr_path.relative_to(root_res).parts)
             except ValueError:
                 depth = 0
-            dirs[:] = [d for d in dirs if not d.startswith(".") and depth < max_depth]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".") and d.lower() not in SKIP_DIR_NAMES and depth < max_depth
+            ]
             for name in files:
-                _add_candidate(curr_path / name, source=source, root_dir=root_res)
+                if len(candidates) >= max_total:
+                    break
+                _collect(curr_path / name, source=source, root_dir=root_res, root_label=root_label)
 
-    _walk_limited(dl_dir, source="downloaded", max_depth=3)
-    _walk_limited(IMPORTED_MEDIA_DIR, source="imported", max_depth=2)
+    _walk_limited(dl_dir, source="downloaded", root_label=dl_dir.name or "!Download", max_depth=3)
+    _walk_limited(IMPORTED_MEDIA_DIR, source="imported", root_label="Importados", max_depth=2)
 
     with _state_lock:
         registered = _load_registry()
@@ -368,26 +592,50 @@ def scan_library() -> list[dict[str, Any]]:
         p = Path(reg_str)
         if p.is_file():
             valid_registered.append(reg_str)
-            _add_candidate(p, source="imported", root_dir=None)
+            _collect(p, source="imported", root_dir=None, root_label=p.parent.name or "Importados")
         else:
             changed_registry = True
     if changed_registry:
         with _state_lock:
             _save_registry(valid_registered)
 
-    items.sort(key=lambda item: float(item.get("mtime") or 0.0), reverse=True)
-    return items
+    if include_device:
+        for dev_dir, dev_label in get_device_media_dirs():
+            _walk_limited(dev_dir, source="device", root_label=dev_label, max_depth=4, max_total=MAX_DEVICE_MEDIA_FILES)
+        for extra_str in list_extra_folders():
+            extra_p = Path(extra_str)
+            _walk_limited(extra_p, source="device", root_label=extra_p.name or extra_str, max_depth=4, max_total=MAX_DEVICE_MEDIA_FILES)
+
+    def _build_safe(entry: tuple[Path, str, str, str | None]) -> dict[str, Any] | None:
+        p, src, fpath, fgrp = entry
+        try:
+            return _build_media_item(p, source=src, folder_path=fpath, folder_group=fgrp)
+        except OSError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        built = [res for res in pool.map(_build_safe, candidates) if res is not None]
+
+    _flush_disk_cache()
+    built.sort(key=lambda item: float(item.get("mtime") or 0.0), reverse=True)
+    return built
 
 
 def extract_embedded_cover(path: Path) -> tuple[bytes, str] | None:
-    """Extract embedded cover art from an audio file as JPEG bytes."""
+    """Extract cover art from sidecar store, embedded tags, or folder cover image."""
     if not is_allowed_media_path(path) or not path.is_file():
         return None
     resolved = path.resolve()
     mtime_ns = resolved.stat().st_mtime_ns
+
+    sidecar = _find_sidecar_cover(resolved)
+    if sidecar is not None:
+        mime = "image/png" if sidecar.suffix.lower() == ".png" else "image/jpeg"
+        return (sidecar.read_bytes(), mime)
+
     cache_key = (str(resolved), mtime_ns)
     with _state_lock:
-        if cache_key in _cover_cache:
+        if cache_key in _cover_cache and _cover_cache[cache_key] is not None:
             return _cover_cache[cache_key]
 
     ffmpeg = resolve_binary("ffmpeg")
@@ -414,6 +662,12 @@ def extract_embedded_cover(path: Path) -> tuple[bytes, str] | None:
                 cover_result = (proc.stdout, "image/jpeg")
         except Exception:
             cover_result = None
+
+    if cover_result is None:
+        folder_cov = _find_folder_cover(resolved.parent)
+        if folder_cov is not None:
+            mime = "image/png" if folder_cov.suffix.lower() == ".png" else "image/jpeg"
+            cover_result = (folder_cov.read_bytes(), mime)
 
     with _state_lock:
         if len(_cover_cache) > 256:
@@ -451,7 +705,7 @@ def lookup_metadata_online(query: str, limit: int = 6) -> list[dict[str, Any]]:
             "limit": max(1, min(12, int(limit))),
         },
         timeout=10.0,
-        headers={"User-Agent": "!Download-Metadata/1.6.0"},
+        headers={"User-Agent": "!Download-Metadata/1.6.1"},
     )
     resp.raise_for_status()
     payload = resp.json()
@@ -522,7 +776,7 @@ def _resolve_cover_temp_file(
             cleaned_url,
             timeout=12.0,
             follow_redirects=True,
-            headers={"User-Agent": "!Download-Cover/1.6.0"},
+            headers={"User-Agent": "!Download-Cover/1.6.1"},
         )
         if resp.status_code != 200:
             raise ValueError("No se pudo descargar la imagen de carátula seleccionada.")
@@ -560,7 +814,7 @@ def apply_audio_metadata(
     cover_url: str | None = None,
     cover_base64: str | None = None,
 ) -> dict[str, Any]:
-    """Write ID3 / MP4 / Vorbis metadata tags and cover art directly into a local audio file."""
+    """Write ID3 / MP4 / Vorbis / RIFF tags and embed or sidecar cover art into a local audio file."""
     if not is_allowed_media_path(path):
         raise PermissionError("Ruta de archivo fuera de las carpetas permitidas.")
     resolved = path.resolve()
@@ -579,11 +833,15 @@ def apply_audio_metadata(
     tmp_out = resolved.with_name(f"{resolved.stem}.tagging_tmp{resolved.suffix}")
 
     try:
-        cover_file = _resolve_cover_temp_file(cover_url, cover_base64, tmp_dir) if supports_cover else None
+        cover_file = _resolve_cover_temp_file(cover_url, cover_base64, tmp_dir)
+        if cover_file is not None:
+            _save_sidecar_cover(resolved, cover_file.read_bytes(), cover_file.suffix)
 
         cmd: list[str] = [ffmpeg, "-y", "-v", "error", "-i", str(resolved)]
-        if cover_file is not None:
-            cmd.extend(["-i", str(cover_file), "-map", "0:a:0", "-map", "1:v:0", "-c:a", "copy", "-c:v", "mjpeg", "-disposition:v:0", "attached_pic"])
+        if supports_cover and cover_file is not None:
+            is_jpeg = cover_file.suffix.lower() in {".jpg", ".jpeg"}
+            vcodec_args = ["-c:v", "copy"] if is_jpeg else ["-c:v", "mjpeg", "-pix_fmt", "yuvj420p"]
+            cmd.extend(["-i", str(cover_file), "-map", "0:a:0", "-map", "1:v:0", "-c:a", "copy", *vcodec_args, "-disposition:v:0", "attached_pic"])
         elif supports_cover:
             cmd.extend(["-map", "0:a:0", "-map", "0:v?", "-c:a", "copy", "-c:v", "copy"])
         else:
@@ -616,8 +874,9 @@ def apply_audio_metadata(
 
         os.replace(tmp_out, resolved)
         _invalidate_caches_for(resolved)
+        _flush_disk_cache()
         source = "imported" if IMPORTED_MEDIA_DIR.resolve() in resolved.parents else "downloaded"
-        return _build_media_item(resolved, source=source)
+        return _build_media_item(resolved, source=source, folder_path=resolved.parent.name, folder_group=resolved.parent.name)
     finally:
         if tmp_out.exists():
             try:

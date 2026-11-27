@@ -368,7 +368,7 @@
       const info = await resp.json();
       state.appInfo = info;
 
-      const version = info.version || "1.6.0";
+      const version = info.version || "1.6.1";
       const developer = info.developer || "Juan Corporation";
       els.footerCredit.textContent = `${info.name || "!Download"} v${version} · ${developer}`;
       els.modalVersionSub.textContent = `v${version} · ${developer}`;
