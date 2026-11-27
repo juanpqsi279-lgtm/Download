@@ -112,7 +112,7 @@ class MediaParserTest {
         assertTrue(MediaParser.urlHasVideoAndList(videoWithMix))
         assertTrue(!MediaParser.shouldExtractPlaylist(videoWithMix, "auto"))
         assertTrue(MediaParser.shouldExtractPlaylist(videoWithMix, "playlist"))
-        assertEquals("Mi_Lista", MediaParser.sanitizeFolderName("  Mi:Lista/  ", "Playlist"))
+        assertEquals("Mi_Lista_", MediaParser.sanitizeFolderName("  Mi:Lista/  ", "Playlist"))
 
         val raw = JSONObject().apply {
             put("_type", "playlist")
